@@ -8,9 +8,10 @@
     3. Unified Single-Thread Loop: Prevents thread conflict when both toggles are ON
     4. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
-    6. Auto Tower Loop:
-       - Read current floor from LocalPlayer.leaderstats.Tower.Value immediately
-       - Invoke Remote TowerElevator(currentFloor) & wait for server sync (0.8s)
+    6. Auto Tower Loop (Fixed Floor 1 Bug):
+       - Read current floor from LocalPlayer.leaderstats.Tower.Value
+       - Invoke Remote TowerElevator(currentFloor) with retry handling
+       - Wait 1.5s for server state sync
        - Invoke Remote TowerStart
        - Intercept Telemetry (funnel = "towerContinue") -> Fire TowerContinueDecline
        - Wait 10s cooldown after Decline and repeat loop
@@ -160,14 +161,20 @@ local function GetScrapCount()
 end
 
 local function GetTowerLevel()
-    local leaderstats = LocalPlayer:FindFirstChild("leaderstats") or LocalPlayer:WaitForChild("leaderstats", 5)
+    local player = LocalPlayer or Players.LocalPlayer
+    if not player then return 1 end
+
+    local leaderstats = player:FindFirstChild("leaderstats") or player:WaitForChild("leaderstats", 5)
     if leaderstats then
-        local towerVal = leaderstats:FindFirstChild("Tower") or leaderstats:WaitForChild("Tower", 5)
-        if towerVal then
-            return tonumber(towerVal.Value) or 0
+        local towerObj = leaderstats:FindFirstChild("Tower") or leaderstats:WaitForChild("Tower", 5)
+        if towerObj then
+            local val = tonumber(towerObj.Value)
+            if val and val > 0 then
+                return val
+            end
         end
     end
-    return 0
+    return 1
 end
 
 local function GetClosestTargetItem()
@@ -210,7 +217,7 @@ end
 
 local function GetRecyclerPosition()
     local recyclers = Workspace:FindFirstChild("Recyclers")
-    if not recyclers then return nil end
+    if not recyclers me then return nil end
 
     local recycler1 = recyclers:FindFirstChild("Recycler1") or recyclers:FindFirstChildWhichIsA("Model") or recyclers:FindFirstChildWhichIsA("BasePart")
     if not recycler1 then return nil end
@@ -383,22 +390,31 @@ function ScrapFarm.ToggleTower(state)
             while ScrapFarm.TowerEnabled do
                 lastDeclineTime = 0
 
-                -- 1. อ่านค่าชั้นปัจจุบันจาก leaderstats.Tower
+                -- 1. อ่านค่าชั้นล่าสุดจาก leaderstats.Tower ก่อนเสมอ
                 local currentTowerFloor = GetTowerLevel()
 
-                -- 2. ส่ง Remote TowerElevator พร้อมชั้นปัจจุบัน
+                -- 2. ยิง Remote TowerElevator ก่อนเสมอ และมีระบบ Retry ป้องกัน Remote ขัดข้อง
                 if towerElevator then
-                    pcall(function()
+                    local ok, _ = pcall(function()
                         if towerElevator:IsA("RemoteFunction") then
                             towerElevator:InvokeServer(currentTowerFloor)
                         elseif towerElevator:IsA("RemoteEvent") then
                             towerElevator:FireServer(currentTowerFloor)
                         end
                     end)
+
+                    if not ok then
+                        task.wait(0.5)
+                        pcall(function()
+                            if towerElevator:IsA("RemoteFunction") then
+                                towerElevator:InvokeServer(currentTowerFloor)
+                            end
+                        end)
+                    end
                 end
 
-                -- รอให้ Server Sync ค่าจากการเลือกชั้นของ TowerElevator ให้เรียบร้อย
-                task.wait(0.8)
+                -- หน่วงเวลา 1.5 วินาทีเพื่อให้ Server Sync ชั้นสำเร็จชัวร์ก่อนเรียก TowerStart
+                task.wait(1.5)
 
                 if not ScrapFarm.TowerEnabled then break end
 
@@ -413,7 +429,7 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะเวลา fallback (60 วินาที)
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (ผ่าน Telemetry hook) หรือพ้นระยะ fallback (60 วินาที)
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and lastDeclineTime == 0 do
                     task.wait(0.5)
