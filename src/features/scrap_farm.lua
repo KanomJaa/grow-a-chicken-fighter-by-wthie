@@ -239,6 +239,8 @@ end
 ------------------------------------------------------------------------
 -- [3] AUTO TOWER FEATURE (Direct Decline Loop - No Hook Required)
 ------------------------------------------------------------------------
+local isTowerHooked = false
+
 local function FireDeclineRemote()
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes then
@@ -252,11 +254,45 @@ local function FireDeclineRemote()
     return false
 end
 
+local function SetupTelemetryHook()
+    if isTowerHooked then return end
+    isTowerHooked = true
+
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local telemetry = remotes and remotes:FindFirstChild("Telemetry")
+
+    if telemetry and typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+        local oldNamecall
+        
+        local hookFunc = function(self, ...)
+            local method = getnamecallmethod()
+
+            if self == telemetry and method == "FireServer" then
+                if ScrapFarm.TowerEnabled and IsUIValid() then
+                    local args = {...}
+                    if args[1] == "funnel" and type(args[2]) == "table" and args[2].funnel == "towerContinue" then
+                        FireDeclineRemote()
+                    end
+                end
+            end
+
+            return oldNamecall(self, ...)
+        end
+
+        if typeof(newcclosure) == "function" then
+            hookFunc = newcclosure(hookFunc)
+        end
+
+        oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
+    end
+end
+
 function ScrapFarm.ToggleTower(state)
     if state and not IsUIValid() then return end
     ScrapFarm.TowerEnabled = state
 
     if state then
+        SetupTelemetryHook()
         task.spawn(function()
             local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
             if not remotes then return end
