@@ -26,17 +26,28 @@ function Movement.EnableNoclip()
     end)
 end
 
--- ปิดการเดินทะลุสิ่งของ (Disable Noclip)
+-- ปิดการเดินทะลุสิ่งของ (Disable Noclip) + คืนค่าให้กลับมาเดินชนตามปกติ
 function Movement.DisableNoclip()
     if NoclipConnection then
         NoclipConnection:Disconnect()
         NoclipConnection = nil
     end
+
+    local character = LocalPlayer.Character
+    if character then
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+    end
 end
 
--- ฟังก์ชันสำหรับเดินไปยังพิกัด Vector3 หรือ CFrame (พร้อมระบบยกเลิกทันทีเมื่อหยุดทำงาน)
-function Movement.WalkTo(targetPosition, timeout, shouldContinueCheck)
+-- ฟังก์ชันสำหรับเดินไปยังพิกัด Vector3 หรือ CFrame (พร้อมระบบสั่งหยุดทันที และระบุระยะหยุด stopDistance ได้)
+function Movement.WalkTo(targetPosition, timeout, shouldContinueCheck, stopDistance)
     timeout = timeout or 15
+    stopDistance = stopDistance or 3.5
+
     local character = LocalPlayer.Character
     if not character then return false end
     
@@ -69,8 +80,8 @@ function Movement.WalkTo(targetPosition, timeout, shouldContinueCheck)
             break
         end
         
-        -- เช็คระยะห่าง ถ้าใกล้เป้าหมายในระยะ 3 studs ถือว่าถึงแล้ว
-        if (hrp.Position - targetPosition).Magnitude <= 3.5 then
+        -- เช็คระยะห่าง หากถึงระยะ stopDistance ถือว่าถึงเป้าหมายแล้ว
+        if (hrp.Position - targetPosition).Magnitude <= stopDistance then
             reached = true
             break
         end

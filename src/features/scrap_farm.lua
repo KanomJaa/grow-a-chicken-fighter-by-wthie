@@ -1,11 +1,12 @@
 --[[
     Auto Scrap & Sell Recycler Feature Module
     หน้าที่: 
-    1. ค้นหา "PitScrap" ใน Workspace -> ค้นหา "Loose" ที่ใกล้ Player ที่สุด
-    2. เปิด Noclip (เดินทะลุสิ่งของ)
-    3. เดินไปเก็บชิ้นที่ใกล้ที่สุดวนจนครบ 10 ชิ้น (หากไม่เจอ Loose ให้เดินไป Recycler1 ทันที)
-    4. เมื่อครบ 10 ชิ้น หรือไม่เหลือ Loose แล้ว เดินไปที่ "Recycler1"
-    5. ทำวนซ้ำเรื่อยๆ จนกว่าจะปิด Toggle
+    1. ตรวจสอบจำนวน Scrap จาก Player Attribute ("scrapCarry")
+    2. ค้นหา "PitScrap" ใน Workspace -> ค้นหา "Loose" ที่ใกล้ Player ที่สุด
+    3. เดินไปเก็บจนกระทั่ง scrapCarry >= 10 (หรือจนกว่า Loose จะหมด)
+    4. เดินไปหน้า "Recycler1" (ยืนข้างหน้า ไม่ตกลงไปข้างใน)
+    5. ทำระบบเช็คความปลอดภัย: รอจนกว่า scrapCarry == 0 ถึงจะกลับไปฟาร์มต่อ
+    6. คืนค่า CanCollide (เดินชนปกติ) ทันทีเมื่อปิด Toggle
 --]]
 
 local ScrapFarm = {}
@@ -21,6 +22,15 @@ local Movement = nil
 
 function ScrapFarm.SetMovementModule(movementModule)
     Movement = movementModule
+end
+
+-- ฟังก์ชันอ่านค่าจำนวน Scrap จาก Attribute "scrapCarry" ของ Player
+local function GetScrapCount()
+    local count = LocalPlayer:GetAttribute("scrapCarry")
+    if count ~= nil then
+        return tonumber(count) or 0
+    end
+    return 0
 end
 
 -- ฟังก์ชันค้นหาชิ้น Loose ใน PitScrap ที่อยู่ใกล้ Player มากที่สุด
@@ -61,7 +71,7 @@ local function GetClosestLoose()
     return closestItem
 end
 
--- ฟังก์ชันค้นหาพิกัดตำแหน่งของ Recycler1 โดยตรง
+-- ฟังก์ชันค้นหาพิกัดตำแหน่งข้างหน้า Recycler1 (ถอยออกมาก่อน 4.5 studs ไม่ตกลงไปข้างใน)
 local function GetRecyclerPosition()
     local recyclers = Workspace:FindFirstChild("Recyclers")
     if not recyclers then
@@ -72,13 +82,17 @@ local function GetRecyclerPosition()
     local recycler1 = recyclers:FindFirstChild("Recycler1") or recyclers:FindFirstChildWhichIsA("Model") or recyclers:FindFirstChildWhichIsA("BasePart")
     if not recycler1 then return nil end
 
+    local cf = nil
     if recycler1:IsA("Model") then
-        if recycler1.PrimaryPart then
-            return recycler1.PrimaryPart.Position
-        end
-        return recycler1:GetPivot().Position
+        cf = recycler1.PrimaryPart and recycler1.PrimaryPart.CFrame or recycler1:GetPivot()
     elseif recycler1:IsA("BasePart") then
-        return recycler1.Position
+        cf = recycler1.CFrame
+    end
+
+    if cf then
+        -- คำนวณพิกัดยืนข้างหน้า Recycler1 (ระยะ 4.5 studs)
+        local frontPosition = cf.Position + (cf.LookVector * 4.5)
+        return frontPosition
     end
 
     return nil
@@ -89,66 +103,98 @@ function ScrapFarm.Toggle(state)
     ScrapFarm.Enabled = state
 
     if state then
-        print("[Auto Scrap] เริ่มทำงาน - เปิด Noclip และค้นหา PitScrap...")
+        print("[Auto Scrap] เริ่มทำงาน - เปิด Noclip และตรวจเช็ค scrapCarry...")
         if Movement then Movement.EnableNoclip() end
 
         task.spawn(function()
             while ScrapFarm.Enabled do
-                local collectedCount = 0
+                local currentScrap = GetScrapCount()
 
-                -- Step 1: วนเก็บ Loose ให้ครบ 10 ชิ้น
-                while ScrapFarm.Enabled and collectedCount < ScrapFarm.TargetCollectAmount do
+                -----------------------------------------------------------------
+                -- STEP 1: เดินเก็บ Scrap ใน PitScrap จนกว่าจะครบ 10 หรือไม่เหลือ Loose
+                -----------------------------------------------------------------
+                while ScrapFarm.Enabled and GetScrapCount() < ScrapFarm.TargetCollectAmount do
                     local targetLoose = GetClosestLoose()
 
                     if targetLoose then
                         local targetPos = targetLoose:IsA("BasePart") and targetLoose.Position or targetLoose:GetPivot().Position
-                        print(string.format("[Auto Scrap] กำลังเดินไปเก็บ Loose ชิ้นที่ %d/%d", collectedCount + 1, ScrapFarm.TargetCollectAmount))
+                        print(string.format("[Auto Scrap] กำลังเดินไปเก็บ Loose ( scrapCarry: %d/%d )", GetScrapCount(), ScrapFarm.TargetCollectAmount))
 
                         local reached = false
                         if Movement then
-                            reached = Movement.WalkTo(targetPos, 15, function() return ScrapFarm.Enabled end)
+                            reached = Movement.WalkTo(targetPos, 15, function() return ScrapFarm.Enabled end, 3.5)
                         end
 
                         if not ScrapFarm.Enabled then break end
 
-                        if reached or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and (LocalPlayer.Character.HumanoidRootPart.Position - targetPos).Magnitude <= 5) then
-                            collectedCount = collectedCount + 1
-                            print(string.format("[Auto Scrap] เก็บสำเร็จแล้ว (%d/%d)", collectedCount, ScrapFarm.TargetCollectAmount))
-                            task.wait(0.2)
-                        end
+                        -- หน่วงเวลาเล็กน้อยหลังจากเดินถึง
+                        task.wait(0.2)
                     else
-                        print("[Auto Scrap] ไม่พบชิ้น Loose ใน PitScrap -> เดินไป Recycler1 ทันที!")
-                        break -- หากไม่เจอ Loose ให้ย้ายไปขั้นตอนเดินไป Recycler1 ทันที
+                        -- ไม่เจอ Loose ใน PitScrap
+                        if GetScrapCount() > 0 then
+                            print("[Auto Scrap] ไม่พบ Loose เพิ่มเติมแล้ว มีของอยู่ -> เดินไป Recycler1 ทันที!")
+                            break
+                        else
+                            print("[Auto Scrap] ไม่พบชิ้น Loose ใน PitScrap... รอ 1 วินาที")
+                            task.wait(1)
+                        end
                     end
                 end
 
                 if not ScrapFarm.Enabled then break end
 
-                -- Step 2: เดินไปที่ Recycler1 (ไม่ว่าจะเก็บครบ 10 ชิ้น หรือหมดกองแล้ว)
-                print("[Auto Scrap] กำลังเดินทางไปที่ Recycler1...")
-                local recyclerPos = GetRecyclerPosition()
+                -----------------------------------------------------------------
+                -- STEP 2: เดินไปที่ Recycler1 และรอให้ขายสำเร็จ (scrapCarry == 0)
+                -----------------------------------------------------------------
+                if GetScrapCount() > 0 then
+                    local isSold = false
+                    local retryAttempts = 0
 
-                if recyclerPos then
-                    if Movement then
-                        Movement.WalkTo(recyclerPos, 20, function() return ScrapFarm.Enabled end)
+                    while ScrapFarm.Enabled and GetScrapCount() > 0 and retryAttempts < 5 do
+                        retryAttempts = retryAttempts + 1
+                        print(string.format("[Auto Scrap] (ครั้งที่ %d) กำลังเดินทางไปที่หน้า Recycler1 เพื่อขาย Scrap...", retryAttempts))
+                        
+                        local recyclerPos = GetRecyclerPosition()
+
+                        if recyclerPos then
+                            if Movement then
+                                Movement.WalkTo(recyclerPos, 20, function() return ScrapFarm.Enabled end, 4.5)
+                            end
+
+                            if not ScrapFarm.Enabled then break end
+
+                            -- รอให้ระบบของเกมขาย Scrap (ตรวจสอบ scrapCarry จนกว่าจะเป็น 0)
+                            print("[Auto Scrap] ยืนรอให้ขาย Scrap...")
+                            local sellStartTime = tick()
+                            
+                            while ScrapFarm.Enabled and GetScrapCount() > 0 and (tick() - sellStartTime) < 4 do
+                                task.wait(0.3)
+                            end
+
+                            if GetScrapCount() == 0 then
+                                isSold = true
+                                print("[Auto Scrap] ขายสำเร็จแล้ว! scrapCarry = 0")
+                                break
+                            else
+                                warn("[Auto Scrap] ยังขายไม่สำเร็จ! กำลังลองขยับไปที่ Recycler1 ใหม่...")
+                                task.wait(0.5)
+                            end
+                        else
+                            warn("[Auto Scrap] ไม่พบตำแหน่ง Recycler1... รอ 2 วินาที")
+                            task.wait(2)
+                        end
                     end
-
-                    if not ScrapFarm.Enabled then break end
-
-                    print("[Auto Scrap] ถึงจุด Recycler1 แล้ว... กำลังทำการขาย")
-                    task.wait(2.0)
-                else
-                    print("[Auto Scrap] ไม่พบตำแหน่ง Recycler1... รอ 2 วินาที")
-                    task.wait(2)
                 end
 
                 task.wait(0.5)
             end
 
+            -- ปิด Noclip และคืนค่าการเดินชนตามปกติเมื่อปิด Toggle
             if Movement then Movement.DisableNoclip() end
             print("[Auto Scrap] หยุดทำงาน และปิด Noclip เรียบร้อย")
         end)
     else
+        -- ปิด Noclip และคืนค่าการเดินชนตามปกติเมื่อปิด Toggle
         if Movement then Movement.DisableNoclip() end
         print("[Auto Scrap] ปิดการทำงานเรียบร้อย")
     end
