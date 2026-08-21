@@ -415,15 +415,15 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. ส่ง Remote TowerContinueDecline เพื่อปฏิเสธการเสนอต่อชั้นทันที
+                -- 4. ส่ง Remote TowerContinueDecline เพื่อปฏิเสธการเสนอต่อชั้นทันที (ความเร็วสูง 0.05s / 50ms)
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
-                    task.wait(0.5)
+                    task.wait(0.05)
                     
-                    -- ยิง Decline Remote ทุกๆ 0.5 วินาที ทันทีที่เข้า Tower เพื่อปฏิเสธข้อเสนอ 0ms ทันทีที่เปิดขึ้นมา
+                    -- ยิง Decline Remote รัวๆ ทุก 0.05 วินาที ทันทีที่ Server เปิดรับจะ Decline ทันทีในมิลลิวินาที
                     FireDeclineRemote()
 
-                    if (tick() - waitStart) > 30 then
+                    if (tick() - waitStart) > 40 then
                         break
                     end
                 end
