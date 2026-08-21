@@ -24,7 +24,6 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
 
     local Tabs = {
         Main     = Window:AddTab({ Title = "Auto Farm", Icon = "box" }),
-        Player   = Window:AddTab({ Title = "Player", Icon = "user" }),
         Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
     }
 
@@ -36,7 +35,7 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
     -- Toggle 1: Auto Scrap & Sell Recycler
     local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {
         Title = "Auto Scrap & Sell Recycler",
-        Description = "Check scrapCarry -> Collect 10 items -> Sell in front of Recycler1",
+        Description = "Auto farm Scrap and sell at Recycler",
         Default = false
     })
 
@@ -60,28 +59,7 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
     end)
 
     ---------------------------------------------------------------------
-    -- [2] TAB: Player Utilities
-    ---------------------------------------------------------------------
-    Tabs.Player:AddSection("Character Settings")
-
-    local SpeedSlider = Tabs.Player:AddSlider("WalkSpeedSlider", {
-        Title = "WalkSpeed",
-        Description = "Adjust character movement speed",
-        Default = 16,
-        Min = 16,
-        Max = 200,
-        Rounding = 0
-    })
-
-    SpeedSlider:OnChanged(function(Value)
-        local lp = game:GetService("Players").LocalPlayer
-        if lp.Character and lp.Character:FindFirstChildOfClass("Humanoid") then
-            lp.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = Value
-        end
-    end)
-
-    ---------------------------------------------------------------------
-    -- [3] TAB: Settings
+    -- [2] TAB: Settings
     ---------------------------------------------------------------------
     Tabs.Settings:AddParagraph({
         Title = "GitHub Usage Instructions",

@@ -292,7 +292,6 @@ local Window = Library:CreateWindow({
 
 local Tabs = {
     Main     = Window:AddTab({ Title = "Auto Farm", Icon = "box" }),
-    Player   = Window:AddTab({ Title = "Player", Icon = "user" }),
     Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
 }
 
@@ -301,7 +300,7 @@ Tabs.Main:AddSection("Auto Recycler Farm")
 -- Toggle 1: Auto Scrap & Sell Recycler
 local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {
     Title = "Auto Scrap & Sell Recycler",
-    Description = "Check scrapCarry -> Collect 10 items -> Sell in front of Recycler1",
+    Description = "Auto farm Scrap and sell at Recycler",
     Default = false
 })
 
@@ -318,24 +317,6 @@ local CoinsToggle = Tabs.Main:AddToggle("AutoCoinsToggle", {
 
 CoinsToggle:OnChanged(function(Value)
     ScrapFarm.ToggleCoins(Value)
-end)
-
--- Player Utilities
-Tabs.Player:AddSection("Character Settings")
-
-local SpeedSlider = Tabs.Player:AddSlider("WalkSpeedSlider", {
-    Title = "WalkSpeed",
-    Description = "Adjust character movement speed",
-    Default = 16,
-    Min = 16,
-    Max = 200,
-    Rounding = 0
-})
-
-SpeedSlider:OnChanged(function(Value)
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-        LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = Value
-    end
 end)
 
 -- Settings Tab
