@@ -6,14 +6,8 @@
     3. ถ้ารันพร้อมกันทั้งคู่ ระบบจะรวมเป็นลูปเดียวและเลือกเก็บชิ้นที่ใกล้ที่สุดก่อน (ไม่รวน/ไม่ชนกัน)
     4. เดินไปยืนหน้า "Recycler1" และขายจนกว่า scrapCarry == 0
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
-    6. Auto Tower Loop (แก้ไขป้องกันบัคกลับไปเริ่มชั้น 1):
-       - ตรวจสอบชั้นล่าสุดจาก LocalPlayer.leaderstats.Tower.Value ก่อนเสมอ
-       - ยิง Remote TowerElevator:InvokeServer(currentFloor) พร้อมระบบรองรับ Retry
-       - หน่วงเวลา 1.5 วินาทีเพื่อให้ Server Sync ชั้นสำเร็จ 100%
-       - จากนั้นค่อยยิง Remote TowerStart:InvokeServer()
-       - ดักจับ Telemetry (funnel = "towerContinue") -> สั่ง TowerContinueDecline:FireServer()
-       - รอ 10 วินาที แล้วเริ่มรอบถัดไปอัตโนมัติ
-    7. ระบบ StopAll: สั่งหยุดทุกระบบและปิด Noclip ทันทีเมื่อปิดหรือลบ UI
+    6. Auto Tower Loop (ยิง TowerElevator สำเร็จก่อนเสมอแล้วค่อยยิง TowerStart)
+    7. ระบบ StopAll & UI Validation: ตรวจสอบความคงอยู่ของ UI ในทุกรอบลูป หากปิด UI ระบบจะหยุดการทำงานทั้งหมดทันที
 --]]
 
 local ScrapFarm = {}
@@ -31,9 +25,25 @@ local Movement = nil
 local isLoopRunning = false
 local isTowerHooked = false
 local lastDeclineTime = 0
+local UIValidator = nil
 
 function ScrapFarm.SetMovementModule(movementModule)
     Movement = movementModule
+end
+
+function ScrapFarm.SetUIValidator(validatorFunc)
+    UIValidator = validatorFunc
+end
+
+local function IsUIValid()
+    if UIValidator then
+        local isValid = UIValidator()
+        if not isValid then
+            ScrapFarm.StopAll()
+            return false
+        end
+    end
+    return true
 end
 
 function ScrapFarm.StopAll()
@@ -132,6 +142,7 @@ local function GetRecyclerPosition()
 end
 
 local function IsAnyFarmEnabled()
+    if not IsUIValid() then return false end
     return ScrapFarm.Enabled or ScrapFarm.CoinsEnabled
 end
 
@@ -142,11 +153,11 @@ local function StartFarmLoop()
     if Movement then Movement.EnableNoclip() end
 
     task.spawn(function()
-        while IsAnyFarmEnabled() do
+        while IsAnyFarmEnabled() and IsUIValid() do
             -----------------------------------------------------------------
             -- STEP 1: เดินเก็บ Item ("Loose" / "Part") จนกว่าจะครบ 10 ชิ้น
             -----------------------------------------------------------------
-            while IsAnyFarmEnabled() and GetScrapCount() < ScrapFarm.TargetCollectAmount do
+            while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() < ScrapFarm.TargetCollectAmount do
                 local targetItem = GetClosestTargetItem()
 
                 if targetItem then
@@ -157,7 +168,7 @@ local function StartFarmLoop()
                         reached = Movement.WalkTo(targetPos, 15, IsAnyFarmEnabled, 3.5)
                     end
 
-                    if not IsAnyFarmEnabled() then break end
+                    if not IsAnyFarmEnabled() or not IsUIValid() then break end
                     task.wait(0.2)
                 else
                     if GetScrapCount() > 0 then
@@ -168,7 +179,7 @@ local function StartFarmLoop()
                 end
             end
 
-            if not IsAnyFarmEnabled() then break end
+            if not IsAnyFarmEnabled() or not IsUIValid() then break end
 
             -----------------------------------------------------------------
             -- STEP 2: เดินไปที่ Recycler1 และรอให้ขายสำเร็จ (scrapCarry == 0)
@@ -176,7 +187,7 @@ local function StartFarmLoop()
             if GetScrapCount() > 0 then
                 local retryAttempts = 0
 
-                while IsAnyFarmEnabled() and GetScrapCount() > 0 and retryAttempts < 5 do
+                while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() > 0 and retryAttempts < 5 do
                     retryAttempts = retryAttempts + 1
                     local recyclerPos = GetRecyclerPosition()
 
@@ -185,11 +196,11 @@ local function StartFarmLoop()
                             Movement.WalkTo(recyclerPos, 20, IsAnyFarmEnabled, 4.5)
                         end
 
-                        if not IsAnyFarmEnabled() then break end
+                        if not IsAnyFarmEnabled() or not IsUIValid() then break end
 
                         local sellStartTime = tick()
                         
-                        while IsAnyFarmEnabled() and GetScrapCount() > 0 and (tick() - sellStartTime) < 4 do
+                        while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() > 0 and (tick() - sellStartTime) < 4 do
                             task.wait(0.3)
                         end
 
@@ -213,6 +224,7 @@ local function StartFarmLoop()
 end
 
 function ScrapFarm.Toggle(state)
+    if state and not IsUIValid() then return end
     ScrapFarm.Enabled = state
     if state then
         StartFarmLoop()
@@ -222,6 +234,7 @@ function ScrapFarm.Toggle(state)
 end
 
 function ScrapFarm.ToggleCoins(state)
+    if state and not IsUIValid() then return end
     ScrapFarm.CoinsEnabled = state
     if state then
         StartFarmLoop()
@@ -254,7 +267,7 @@ local function SetupTelemetryHook()
             local method = getnamecallmethod()
             local args = {...}
 
-            if ScrapFarm.TowerEnabled and (method == "FireServer" or method == "fireServer") then
+            if ScrapFarm.TowerEnabled and IsUIValid() and (method == "FireServer" or method == "fireServer") then
                 if self and self.Name == "Telemetry" then
                     if args[1] == "funnel" and typeof(args[2]) == "table" then
                         if args[2]["funnel"] == "towerContinue" then
@@ -273,6 +286,7 @@ local function SetupTelemetryHook()
 end
 
 function ScrapFarm.ToggleTower(state)
+    if state and not IsUIValid() then return end
     ScrapFarm.TowerEnabled = state
 
     if state then
@@ -285,13 +299,13 @@ function ScrapFarm.ToggleTower(state)
             local towerElevator = remotes:WaitForChild("TowerElevator", 10)
             local towerStart = remotes:WaitForChild("TowerStart", 10)
 
-            while ScrapFarm.TowerEnabled do
+            while ScrapFarm.TowerEnabled and IsUIValid() do
                 lastDeclineTime = 0
 
                 -- 1. อ่านค่าชั้นล่าสุดจาก leaderstats.Tower ก่อนเสมอ
                 local currentTowerFloor = GetTowerLevel()
 
-                -- 2. ยิง Remote TowerElevator ก่อนเสมอ และมีระบบ Retry ป้องกัน Remote ขัดข้อง
+                -- 2. ยิง Remote TowerElevator ก่อนเสมอ
                 if towerElevator then
                     local ok, _ = pcall(function()
                         if towerElevator:IsA("RemoteFunction") then
@@ -311,12 +325,11 @@ function ScrapFarm.ToggleTower(state)
                     end
                 end
 
-                -- หน่วงเวลา 1.5 วินาทีเพื่อให้ Server Sync ชั้นสำเร็จชัวร์ก่อนเรียก TowerStart
                 task.wait(1.5)
 
-                if not ScrapFarm.TowerEnabled then break end
+                if not ScrapFarm.TowerEnabled or not IsUIValid() then break end
 
-                -- 3. จากนั้นค่อยยิง Remote TowerStart ตามหลัง
+                -- 3. ยิง Remote TowerStart
                 if towerStart then
                     pcall(function()
                         if towerStart:IsA("RemoteFunction") then
@@ -327,17 +340,17 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (ผ่าน Telemetry hook) หรือพ้นระยะ fallback (60 วินาที)
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะเวลา fallback
                 local waitStart = tick()
-                while ScrapFarm.TowerEnabled and lastDeclineTime == 0 do
+                while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
                     task.wait(0.5)
                     if (tick() - waitStart) > 60 then
                         break
                     end
                 end
 
-                -- 5. หากยิง TowerContinueDecline เรียบร้อย ให้รอครบ 10 วินาทีก่อนเริ่มลูปรอบถัดไป
-                if ScrapFarm.TowerEnabled then
+                -- 5. รอครบ 10 วินาทีก่อนเริ่มลูปรอบถัดไป
+                if ScrapFarm.TowerEnabled and IsUIValid() then
                     if lastDeclineTime > 0 then
                         local timePassed = tick() - lastDeclineTime
                         if timePassed < 10 then

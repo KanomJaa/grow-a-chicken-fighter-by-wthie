@@ -29,9 +29,25 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
         Settings    = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
     }
 
-    -- ---------------------------------------------------------------------
-    -- GLOBAL CLEANUP / STOP ALL WHEN UI IS CLOSED OR UNLOADED
-    -- ---------------------------------------------------------------------
+    ---------------------------------------------------------------------
+    -- GLOBAL CLEANUP & UI VALIDATION
+    ---------------------------------------------------------------------
+    local function CheckUI()
+        if Library and Library.Unloaded then
+            return false
+        end
+        if Library and Library.GUI then
+            if not Library.GUI.Parent or not Library.GUI:IsDescendantOf(game) then
+                return false
+            end
+        end
+        return true
+    end
+
+    if ScrapFarmModule and ScrapFarmModule.SetUIValidator then
+        ScrapFarmModule.SetUIValidator(CheckUI)
+    end
+
     local function OnUICclosed()
         if ScrapFarmModule and ScrapFarmModule.StopAll then
             ScrapFarmModule.StopAll()
@@ -48,17 +64,11 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
     end)
 
     task.spawn(function()
-        task.wait(1)
+        task.wait(0.5)
         pcall(function()
-            local CoreGui = game:GetService("CoreGui")
-            local PlayerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
-            
-            local screenGui = (CoreGui and CoreGui:FindFirstChild("Fluent")) 
-                           or (PlayerGui and PlayerGui:FindFirstChild("Fluent"))
-            
-            if screenGui then
-                screenGui.Destroying:Connect(OnUICclosed)
-                screenGui.AncestryChanged:Connect(function(_, parent)
+            if Library and Library.GUI then
+                Library.GUI.Destroying:Connect(OnUICclosed)
+                Library.GUI.AncestryChanged:Connect(function(_, parent)
                     if not parent then
                         OnUICclosed()
                     end

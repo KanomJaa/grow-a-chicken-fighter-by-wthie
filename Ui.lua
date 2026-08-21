@@ -15,7 +15,9 @@
        - Invoke Remote TowerStart
        - Intercept Telemetry (funnel = "towerContinue") -> Fire TowerContinueDecline
        - Wait 10s cooldown after Decline and repeat loop
-    7. Global UI Cleanup: Immediately stops all farm loops and disables Noclip if UI is closed or destroyed
+    7. Global UI Cleanup & Real-time Validation:
+       - Continuous IsUIValid checks inside all while loops
+       - Immediately halts all automation loops and restores collisions if UI is closed or destroyed
     ========================================================================
 --]]
 
@@ -144,6 +146,22 @@ local ScrapFarm = {
 local isLoopRunning = false
 local isTowerHooked = false
 local lastDeclineTime = 0
+local UIValidator = nil
+
+function ScrapFarm.SetUIValidator(validatorFunc)
+    UIValidator = validatorFunc
+end
+
+local function IsUIValid()
+    if UIValidator then
+        local isValid = UIValidator()
+        if not isValid then
+            ScrapFarm.StopAll()
+            return false
+        end
+    end
+    return true
+end
 
 function ScrapFarm.StopAll()
     ScrapFarm.Enabled = false
@@ -217,7 +235,7 @@ end
 
 local function GetRecyclerPosition()
     local recyclers = Workspace:FindFirstChild("Recyclers")
-    if not recyclers me then return nil end
+    if not recyclers then return nil end
 
     local recycler1 = recyclers:FindFirstChild("Recycler1") or recyclers:FindFirstChildWhichIsA("Model") or recyclers:FindFirstChildWhichIsA("BasePart")
     if not recycler1 then return nil end
@@ -238,6 +256,7 @@ local function GetRecyclerPosition()
 end
 
 local function IsAnyFarmEnabled()
+    if not IsUIValid() then return false end
     return ScrapFarm.Enabled or ScrapFarm.CoinsEnabled
 end
 
@@ -248,11 +267,11 @@ local function StartFarmLoop()
     Movement.EnableNoclip()
 
     task.spawn(function()
-        while IsAnyFarmEnabled() do
+        while IsAnyFarmEnabled() and IsUIValid() do
             -----------------------------------------------------------------
             -- 1. Collect Target Items in PitScrap ("Loose" / "Part")
             -----------------------------------------------------------------
-            while IsAnyFarmEnabled() and GetScrapCount() < ScrapFarm.TargetAmount do
+            while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() < ScrapFarm.TargetAmount do
                 local targetItem = GetClosestTargetItem()
 
                 if targetItem then
@@ -260,7 +279,7 @@ local function StartFarmLoop()
 
                     local reached = Movement.WalkTo(targetPos, 15, IsAnyFarmEnabled, 3.5)
 
-                    if not IsAnyFarmEnabled() then break end
+                    if not IsAnyFarmEnabled() or not IsUIValid() then break end
                     task.wait(0.2)
                 else
                     if GetScrapCount() > 0 then
@@ -271,7 +290,7 @@ local function StartFarmLoop()
                 end
             end
 
-            if not IsAnyFarmEnabled() then break end
+            if not IsAnyFarmEnabled() or not IsUIValid() then break end
 
             -----------------------------------------------------------------
             -- 2. Walk to Recycler1 and sell
@@ -279,7 +298,7 @@ local function StartFarmLoop()
             if GetScrapCount() > 0 then
                 local retryAttempts = 0
 
-                while IsAnyFarmEnabled() and GetScrapCount() > 0 and retryAttempts < 5 do
+                while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() > 0 and retryAttempts < 5 do
                     retryAttempts = retryAttempts + 1
                     
                     local recyclerPos = GetRecyclerPosition()
@@ -287,11 +306,11 @@ local function StartFarmLoop()
                     if recyclerPos then
                         Movement.WalkTo(recyclerPos, 20, IsAnyFarmEnabled, 4.5)
 
-                        if not IsAnyFarmEnabled() then break end
+                        if not IsAnyFarmEnabled() or not IsUIValid() then break end
 
                         local sellStartTime = tick()
                         
-                        while IsAnyFarmEnabled() and GetScrapCount() > 0 and (tick() - sellStartTime) < 4 do
+                        while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() > 0 and (tick() - sellStartTime) < 4 do
                             task.wait(0.3)
                         end
 
@@ -315,6 +334,7 @@ local function StartFarmLoop()
 end
 
 function ScrapFarm.Toggle(state)
+    if state and not IsUIValid() then return end
     ScrapFarm.Enabled = state
     if state then
         StartFarmLoop()
@@ -324,6 +344,7 @@ function ScrapFarm.Toggle(state)
 end
 
 function ScrapFarm.ToggleCoins(state)
+    if state and not IsUIValid() then return end
     ScrapFarm.CoinsEnabled = state
     if state then
         StartFarmLoop()
@@ -356,7 +377,7 @@ local function SetupTelemetryHook()
             local method = getnamecallmethod()
             local args = {...}
 
-            if ScrapFarm.TowerEnabled and (method == "FireServer" or method == "fireServer") then
+            if ScrapFarm.TowerEnabled and IsUIValid() and (method == "FireServer" or method == "fireServer") then
                 if self and self.Name == "Telemetry" then
                     if args[1] == "funnel" and typeof(args[2]) == "table" then
                         if args[2]["funnel"] == "towerContinue" then
@@ -375,6 +396,7 @@ local function SetupTelemetryHook()
 end
 
 function ScrapFarm.ToggleTower(state)
+    if state and not IsUIValid() then return end
     ScrapFarm.TowerEnabled = state
 
     if state then
@@ -387,13 +409,13 @@ function ScrapFarm.ToggleTower(state)
             local towerElevator = remotes:WaitForChild("TowerElevator", 10)
             local towerStart = remotes:WaitForChild("TowerStart", 10)
 
-            while ScrapFarm.TowerEnabled do
+            while ScrapFarm.TowerEnabled and IsUIValid() do
                 lastDeclineTime = 0
 
                 -- 1. อ่านค่าชั้นล่าสุดจาก leaderstats.Tower ก่อนเสมอ
                 local currentTowerFloor = GetTowerLevel()
 
-                -- 2. ยิง Remote TowerElevator ก่อนเสมอ และมีระบบ Retry ป้องกัน Remote ขัดข้อง
+                -- 2. ยิง Remote TowerElevator ก่อนเสมอ
                 if towerElevator then
                     local ok, _ = pcall(function()
                         if towerElevator:IsA("RemoteFunction") then
@@ -413,12 +435,11 @@ function ScrapFarm.ToggleTower(state)
                     end
                 end
 
-                -- หน่วงเวลา 1.5 วินาทีเพื่อให้ Server Sync ชั้นสำเร็จชัวร์ก่อนเรียก TowerStart
                 task.wait(1.5)
 
-                if not ScrapFarm.TowerEnabled then break end
+                if not ScrapFarm.TowerEnabled or not IsUIValid() then break end
 
-                -- 3. จากนั้นค่อยยิง Remote TowerStart ตามหลัง
+                -- 3. ยิง Remote TowerStart ตามหลัง
                 if towerStart then
                     pcall(function()
                         if towerStart:IsA("RemoteFunction") then
@@ -429,17 +450,17 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (ผ่าน Telemetry hook) หรือพ้นระยะ fallback (60 วินาที)
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะ fallback
                 local waitStart = tick()
-                while ScrapFarm.TowerEnabled and lastDeclineTime == 0 do
+                while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
                     task.wait(0.5)
                     if (tick() - waitStart) > 60 then
                         break
                     end
                 end
 
-                -- 5. หากยิง TowerContinueDecline เรียบร้อย ให้รอครบ 10 วินาทีก่อนเริ่มลูปรอบถัดไป
-                if ScrapFarm.TowerEnabled then
+                -- 5. รอครบ 10 วินาทีก่อนเริ่มลูปรอบถัดไป
+                if ScrapFarm.TowerEnabled and IsUIValid() then
                     if lastDeclineTime > 0 then
                         local timePassed = tick() - lastDeclineTime
                         if timePassed < 10 then
@@ -477,8 +498,22 @@ local Tabs = {
 }
 
 ------------------------------------------------------------------------
--- GLOBAL CLEANUP / STOP ALL WHEN UI IS CLOSED OR UNLOADED
+-- GLOBAL CLEANUP & REAL-TIME UI VALIDATION
 ------------------------------------------------------------------------
+local function CheckUI()
+    if Library and Library.Unloaded then
+        return false
+    end
+    if Library and Library.GUI then
+        if not Library.GUI.Parent or not Library.GUI:IsDescendantOf(game) then
+            return false
+        end
+    end
+    return true
+end
+
+ScrapFarm.SetUIValidator(CheckUI)
+
 local function OnUICclosed()
     ScrapFarm.StopAll()
 end
@@ -493,17 +528,11 @@ pcall(function()
 end)
 
 task.spawn(function()
-    task.wait(1)
+    task.wait(0.5)
     pcall(function()
-        local CoreGui = game:GetService("CoreGui")
-        local PlayerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        
-        local screenGui = (CoreGui and CoreGui:FindFirstChild("Fluent")) 
-                       or (PlayerGui and PlayerGui:FindFirstChild("Fluent"))
-        
-        if screenGui then
-            screenGui.Destroying:Connect(OnUICclosed)
-            screenGui.AncestryChanged:Connect(function(_, parent)
+        if Library and Library.GUI then
+            Library.GUI.Destroying:Connect(OnUICclosed)
+            Library.GUI.AncestryChanged:Connect(function(_, parent)
                 if not parent then
                     OnUICclosed()
                 end
