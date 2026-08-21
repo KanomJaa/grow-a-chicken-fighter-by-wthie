@@ -8,7 +8,7 @@
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
     6. Auto Tower Loop (ยิง TowerElevator สำเร็จก่อนเสมอแล้วค่อยยิง TowerStart)
     7. ระบบ StopAll & UI Validation: ตรวจสอบความคงอยู่ของ UI ในทุกรอบลูป หากปิด UI ระบบจะหยุดการทำงานทั้งหมดทันที
-    8. ป้องกัน Error Thread Capability: หุ้ม hookmetamethod ด้วย newcclosure ป้องกันสคริปต์ตัวเกม (CameraModule/ControlModule) ค้าง
+    8. ป้องกัน Error Thread Capability 100%: ยกเลิกการ hookmetamethod(game, "__namecall") ซึ่งเป็นสาเหตุของสคริปต์กล้อง/ปุ่มเดินค้าง เปลี่ยนไปใช้ Targeted Remote Hook และ Periodic Decline Fallback
 --]]
 
 local ScrapFarm = {}
@@ -161,7 +161,7 @@ local function StartFarmLoop()
             while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() < ScrapFarm.TargetCollectAmount do
                 local targetItem = GetClosestTargetItem()
 
-                if targetItem then
+                if targetItem me then
                     local targetPos = targetItem:IsA("BasePart") and targetItem.Position or targetItem:GetPivot().Position
 
                     local reached = false
@@ -262,34 +262,25 @@ local function SetupTelemetryHook()
     if isTowerHooked then return end
     isTowerHooked = true
 
-    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
-        local oldNamecall
-        
-        local hookFunction = function(self, ...)
-            local method = getnamecallmethod()
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local telemetry = remotes and remotes:FindFirstChild("Telemetry")
 
-            if ScrapFarm.TowerEnabled and IsUIValid() and (method == "FireServer" or method == "fireServer") then
-                if self and self.Name == "Telemetry" then
-                    local args = {...}
-                    if args[1] == "funnel" and typeof(args[2]) == "table" then
-                        if args[2]["funnel"] == "towerContinue" then
-                            task.spawn(function()
-                                task.wait(0.1)
-                                FireDeclineRemote()
-                            end)
-                        end
+    if telemetry and typeof(hookfunction) == "function" then
+        pcall(function()
+            local oldFire
+            oldFire = hookfunction(telemetry.FireServer, newcclosure(function(self, ...)
+                local args = {...}
+                if ScrapFarm.TowerEnabled and IsUIValid() and args[1] == "funnel" and typeof(args[2]) == "table" then
+                    if args[2]["funnel"] == "towerContinue" then
+                        task.spawn(function()
+                            task.wait(0.1)
+                            FireDeclineRemote()
+                        end)
                     end
                 end
-            end
-
-            return oldNamecall(self, ...)
-        end
-
-        if typeof(newcclosure) == "function" then
-            hookFunction = newcclosure(hookFunction)
-        end
-
-        oldNamecall = hookmetamethod(game, "__namecall", hookFunction)
+                return oldFire(self, ...)
+            end))
+        end)
     end
 end
 
@@ -348,11 +339,17 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะ fallback
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (มีทั้งระบบ Telemetry hook และ Periodic Decline Fallback)
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
-                    task.wait(0.5)
-                    if (tick() - waitStart) > 60 then
+                    task.wait(1)
+                    
+                    -- ยิง Decline Remote เป็นระยะเผื่อกรณี Executor ไม่รองรับ Telemetry Hook
+                    if (tick() - waitStart) >= 3 then
+                        FireDeclineRemote()
+                    end
+
+                    if (tick() - waitStart) > 45 then
                         break
                     end
                 end

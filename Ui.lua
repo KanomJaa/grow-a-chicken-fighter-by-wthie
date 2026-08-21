@@ -8,12 +8,12 @@
     3. Unified Single-Thread Loop: Prevents thread conflict when both toggles are ON
     4. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
-    6. Auto Tower Loop (Fixed Floor 1 Bug & Capability Error):
+    6. Auto Tower Loop (Zero Metamethod Error Version):
        - Read current floor from LocalPlayer.leaderstats.Tower.Value
        - Invoke Remote TowerElevator(currentFloor) with retry handling
        - Wait 1.5s for server state sync
        - Invoke Remote TowerStart
-       - Intercept Telemetry (funnel = "towerContinue") via newcclosure hookmetamethod -> Fire TowerContinueDecline
+       - Dual Decline Trigger: Targeted Telemetry Remote Hook + Periodic Decline Fallback (Zero capability errors)
        - Wait 10s cooldown after Decline and repeat loop
     7. Global UI Cleanup & Real-time Validation:
        - Continuous IsUIValid checks inside all while loops
@@ -371,34 +371,25 @@ local function SetupTelemetryHook()
     if isTowerHooked then return end
     isTowerHooked = true
 
-    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
-        local oldNamecall
-        
-        local hookFunction = function(self, ...)
-            local method = getnamecallmethod()
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local telemetry = remotes and remotes:FindFirstChild("Telemetry")
 
-            if ScrapFarm.TowerEnabled and IsUIValid() and (method == "FireServer" or method == "fireServer") then
-                if self and self.Name == "Telemetry" then
-                    local args = {...}
-                    if args[1] == "funnel" and typeof(args[2]) == "table" then
-                        if args[2]["funnel"] == "towerContinue" then
-                            task.spawn(function()
-                                task.wait(0.1)
-                                FireDeclineRemote()
-                            end)
-                        end
+    if telemetry and typeof(hookfunction) == "function" then
+        pcall(function()
+            local oldFire
+            oldFire = hookfunction(telemetry.FireServer, newcclosure(function(self, ...)
+                local args = {...}
+                if ScrapFarm.TowerEnabled and IsUIValid() and args[1] == "funnel" and typeof(args[2]) == "table" then
+                    if args[2]["funnel"] == "towerContinue" then
+                        task.spawn(function()
+                            task.wait(0.1)
+                            FireDeclineRemote()
+                        end)
                     end
                 end
-            end
-
-            return oldNamecall(self, ...)
-        end
-
-        if typeof(newcclosure) == "function" then
-            hookFunction = newcclosure(hookFunction)
-        end
-
-        oldNamecall = hookmetamethod(game, "__namecall", hookFunction)
+                return oldFire(self, ...)
+            end))
+        end)
     end
 end
 
@@ -457,11 +448,17 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะ fallback
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (มีทั้งระบบ Telemetry hook และ Periodic Decline Fallback)
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
-                    task.wait(0.5)
-                    if (tick() - waitStart) > 60 then
+                    task.wait(1)
+                    
+                    -- ยิง Decline Remote เป็นระยะเผื่อกรณี Executor ไม่รองรับ Telemetry Hook
+                    if (tick() - waitStart) >= 3 then
+                        FireDeclineRemote()
+                    end
+
+                    if (tick() - waitStart) > 45 then
                         break
                     end
                 end
