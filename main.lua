@@ -2,18 +2,14 @@
     ========================================================================
     White Studio Games - Main Script Entry Point (ไฟล์รันหลักแบบ Modular)
     ========================================================================
-    วิธีนำไปขึ้น GitHub:
-    1. สร้าง Repository บน GitHub เช่น ชื่อ "MyRobloxScript"
-    2. อัปโหลดโฟลเดอร์ src และไฟล์ main.lua ขึ้น GitHub
-    3. เปลี่ยน USERNAME และ REPO ด้านล่างเป็นของคุณ
-    4. รันใน Roblox ด้วยคำสั่ง:
-       loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/REPO/main/main.lua"))()
+    สคริปต์นี้ถูกตั้งค่า GitHub URL ของคุณเรียบร้อยแล้ว:
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/KanomJaa/grow-a-chicken-fighter-by-wthie/main/main.lua"))()
     ========================================================================
 --]]
 
-local USERNAME = "YOUR_GITHUB_USERNAME"  -- ใส่ ชื่อผู้ใช้ GitHub ของคุณ
-local REPO     = "YOUR_REPOSITORY_NAME"  -- ใส่ ชื่อ Repository ของคุณ
-local BRANCH   = "main"                  -- ชื่อ Branch (ส่วนใหญ่คือ main หรือ master)
+local USERNAME = "KanomJaa"                          -- ชื่อผู้ใช้ GitHub ของคุณ
+local REPO     = "grow-a-chicken-fighter-by-wthie"  -- ชื่อ Repository ของคุณ
+local BRANCH   = "main"                              -- ชื่อ Branch
 
 local BaseUrl = string.format("https://raw.githubusercontent.com/%s/%s/%s/", USERNAME, REPO, BRANCH)
 
