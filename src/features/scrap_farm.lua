@@ -8,6 +8,7 @@
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
     6. Auto Tower Loop (ยิง TowerElevator สำเร็จก่อนเสมอแล้วค่อยยิง TowerStart)
     7. ระบบ StopAll & UI Validation: ตรวจสอบความคงอยู่ของ UI ในทุกรอบลูป หากปิด UI ระบบจะหยุดการทำงานทั้งหมดทันที
+    8. ป้องกัน Error Thread Capability: หุ้ม hookmetamethod ด้วย newcclosure ป้องกันสคริปต์ตัวเกม (CameraModule/ControlModule) ค้าง
 --]]
 
 local ScrapFarm = {}
@@ -263,12 +264,13 @@ local function SetupTelemetryHook()
 
     if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
         local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        
+        local hookFunction = function(self, ...)
             local method = getnamecallmethod()
-            local args = {...}
 
             if ScrapFarm.TowerEnabled and IsUIValid() and (method == "FireServer" or method == "fireServer") then
                 if self and self.Name == "Telemetry" then
+                    local args = {...}
                     if args[1] == "funnel" and typeof(args[2]) == "table" then
                         if args[2]["funnel"] == "towerContinue" then
                             task.spawn(function()
@@ -281,7 +283,13 @@ local function SetupTelemetryHook()
             end
 
             return oldNamecall(self, ...)
-        end)
+        end
+
+        if typeof(newcclosure) == "function" then
+            hookFunction = newcclosure(hookFunction)
+        end
+
+        oldNamecall = hookmetamethod(game, "__namecall", hookFunction)
     end
 end
 
@@ -340,7 +348,7 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะเวลา fallback
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะ fallback
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
                     task.wait(0.5)

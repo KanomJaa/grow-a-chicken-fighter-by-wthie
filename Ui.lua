@@ -8,12 +8,12 @@
     3. Unified Single-Thread Loop: Prevents thread conflict when both toggles are ON
     4. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
-    6. Auto Tower Loop (Fixed Floor 1 Bug):
+    6. Auto Tower Loop (Fixed Floor 1 Bug & Capability Error):
        - Read current floor from LocalPlayer.leaderstats.Tower.Value
        - Invoke Remote TowerElevator(currentFloor) with retry handling
        - Wait 1.5s for server state sync
        - Invoke Remote TowerStart
-       - Intercept Telemetry (funnel = "towerContinue") -> Fire TowerContinueDecline
+       - Intercept Telemetry (funnel = "towerContinue") via newcclosure hookmetamethod -> Fire TowerContinueDecline
        - Wait 10s cooldown after Decline and repeat loop
     7. Global UI Cleanup & Real-time Validation:
        - Continuous IsUIValid checks inside all while loops
@@ -373,12 +373,13 @@ local function SetupTelemetryHook()
 
     if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
         local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        
+        local hookFunction = function(self, ...)
             local method = getnamecallmethod()
-            local args = {...}
 
             if ScrapFarm.TowerEnabled and IsUIValid() and (method == "FireServer" or method == "fireServer") then
                 if self and self.Name == "Telemetry" then
+                    local args = {...}
                     if args[1] == "funnel" and typeof(args[2]) == "table" then
                         if args[2]["funnel"] == "towerContinue" then
                             task.spawn(function()
@@ -391,7 +392,13 @@ local function SetupTelemetryHook()
             end
 
             return oldNamecall(self, ...)
-        end)
+        end
+
+        if typeof(newcclosure) == "function" then
+            hookFunction = newcclosure(hookFunction)
+        end
+
+        oldNamecall = hookmetamethod(game, "__namecall", hookFunction)
     end
 end
 
