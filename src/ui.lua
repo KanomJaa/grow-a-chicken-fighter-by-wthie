@@ -1,6 +1,6 @@
 --[[
     UI Module (Fluent Library)
-    Main UI Setup with English labels and Auto Coins toggle placeholder
+    Main UI Setup with English labels
 --]]
 
 local UIModule = {}
@@ -70,10 +70,17 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
     ---------------------------------------------------------------------
     -- [3] TAB: Tower
     ---------------------------------------------------------------------
-    Tabs.Tower:AddParagraph({
-        Title = "Tower System",
-        Content = "Configure tower automation settings here."
+    local TowerToggle = Tabs.Tower:AddToggle("AutoTowerToggle", {
+        Title = "Auto Tower",
+        Description = "Auto climb and farm Tower",
+        Default = false
     })
+
+    TowerToggle:OnChanged(function(Value)
+        if ScrapFarmModule and ScrapFarmModule.ToggleTower then
+            ScrapFarmModule.ToggleTower(Value)
+        end
+    end)
 
     ---------------------------------------------------------------------
     -- [4] TAB: Settings

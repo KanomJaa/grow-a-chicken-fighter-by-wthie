@@ -1,24 +1,29 @@
 --[[
-    Auto Scrap & Auto Coins Farm Module
+    Auto Scrap, Auto Coins & Auto Tower Farm Module
     หน้าที่: 
     1. ตรวจสอบจำนวน Scrap/Item จาก Player Attribute ("scrapCarry")
     2. รองรับ Auto Scrap ("Loose") และ Auto Coins ("Part") ใน PitScrap
     3. ถ้ารันพร้อมกันทั้งคู่ ระบบจะรวมเป็นลูปเดียวและเลือกเก็บชิ้นที่ใกล้ที่สุดก่อน (ไม่รวน/ไม่ชนกัน)
     4. เดินไปยืนหน้า "Recycler1" และขายจนกว่า scrapCarry == 0
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
+    6. Auto Tower: เรียก TowerStart RemoteFunction แล้วดักจับ Telemetry (funnel = "towerContinue") 
+       เพื่อกด TowerContinueDecline RemoteEvent ทันที
 --]]
 
 local ScrapFarm = {}
 ScrapFarm.Enabled = false
 ScrapFarm.CoinsEnabled = false
+ScrapFarm.TowerEnabled = false
 ScrapFarm.TargetCollectAmount = 10
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 local Movement = nil
 local isLoopRunning = false
+local isTowerHooked = false
 
 function ScrapFarm.SetMovementModule(movementModule)
     Movement = movementModule
@@ -189,6 +194,76 @@ function ScrapFarm.ToggleCoins(state)
         StartFarmLoop()
     elseif not IsAnyFarmEnabled() then
         if Movement then Movement.DisableNoclip() end
+    end
+end
+
+------------------------------------------------------------------------
+-- [3] AUTO TOWER FEATURE
+------------------------------------------------------------------------
+local function FireDeclineRemote()
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local declineRemote = remotes:FindFirstChild("TowerContinueDecline")
+        if declineRemote and declineRemote:IsA("RemoteEvent") then
+            declineRemote:FireServer()
+        end
+    end
+end
+
+local function SetupTelemetryHook()
+    if isTowerHooked then return end
+    isTowerHooked = true
+
+    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+
+            if ScrapFarm.TowerEnabled and (method == "FireServer" or method == "fireServer") then
+                if self and self.Name == "Telemetry" then
+                    if args[1] == "funnel" and typeof(args[2]) == "table" then
+                        if args[2]["funnel"] == "towerContinue" then
+                            task.spawn(function()
+                                task.wait(0.1)
+                                FireDeclineRemote()
+                            end)
+                        end
+                    end
+                end
+            end
+
+            return oldNamecall(self, ...)
+        end)
+    end
+end
+
+function ScrapFarm.ToggleTower(state)
+    ScrapFarm.TowerEnabled = state
+
+    if state then
+        SetupTelemetryHook()
+
+        task.spawn(function()
+            local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+            if not remotes then return end
+
+            local towerStart = remotes:WaitForChild("TowerStart", 10)
+
+            while ScrapFarm.TowerEnabled do
+                if towerStart then
+                    pcall(function()
+                        if towerStart:IsA("RemoteFunction") then
+                            towerStart:InvokeServer()
+                        elseif towerStart:IsA("RemoteEvent") then
+                            towerStart:FireServer()
+                        end
+                    end)
+                end
+
+                task.wait(3)
+            end
+        end)
     end
 end
 

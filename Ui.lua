@@ -9,11 +9,14 @@
     4. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
     6. Walk to front position of "Recycler1" and wait until scrapCarry == 0
+    7. Auto Tower: Invoke RemoteFunction TowerStart, intercept Telemetry funnel "towerContinue",
+       and fire RemoteEvent TowerContinueDecline automatically
     ========================================================================
 --]]
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
@@ -129,10 +132,12 @@ end
 local ScrapFarm = {
     Enabled = false,
     CoinsEnabled = false,
+    TowerEnabled = false,
     TargetAmount = 10
 }
 
 local isLoopRunning = false
+local isTowerHooked = false
 
 local function GetScrapCount()
     local count = LocalPlayer:GetAttribute("scrapCarry")
@@ -298,7 +303,77 @@ function ScrapFarm.ToggleCoins(state)
 end
 
 ------------------------------------------------------------------------
--- [3] UI INITIALIZATION (Fluent Library)
+-- [3] AUTO TOWER FEATURE
+------------------------------------------------------------------------
+local function FireDeclineRemote()
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local declineRemote = remotes:FindFirstChild("TowerContinueDecline")
+        if declineRemote and declineRemote:IsA("RemoteEvent") then
+            declineRemote:FireServer()
+        end
+    end
+end
+
+local function SetupTelemetryHook()
+    if isTowerHooked then return end
+    isTowerHooked = true
+
+    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+
+            if ScrapFarm.TowerEnabled and (method == "FireServer" or method == "fireServer") then
+                if self and self.Name == "Telemetry" then
+                    if args[1] == "funnel" and typeof(args[2]) == "table" then
+                        if args[2]["funnel"] == "towerContinue" then
+                            task.spawn(function()
+                                task.wait(0.1)
+                                FireDeclineRemote()
+                            end)
+                        end
+                    end
+                end
+            end
+
+            return oldNamecall(self, ...)
+        end)
+    end
+end
+
+function ScrapFarm.ToggleTower(state)
+    ScrapFarm.TowerEnabled = state
+
+    if state then
+        SetupTelemetryHook()
+
+        task.spawn(function()
+            local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+            if not remotes then return end
+
+            local towerStart = remotes:WaitForChild("TowerStart", 10)
+
+            while ScrapFarm.TowerEnabled do
+                if towerStart then
+                    pcall(function()
+                        if towerStart:IsA("RemoteFunction") then
+                            towerStart:InvokeServer()
+                        elseif towerStart:IsA("RemoteEvent") then
+                            towerStart:FireServer()
+                        end
+                    end)
+                end
+
+                task.wait(3)
+            end
+        end)
+    end
+end
+
+------------------------------------------------------------------------
+-- [4] UI INITIALIZATION (Fluent Library)
 ------------------------------------------------------------------------
 local Library = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
@@ -347,10 +422,15 @@ Tabs.AutoUpgrade:AddParagraph({
 })
 
 -- [3] TAB: Tower
-Tabs.Tower:AddParagraph({
-    Title = "Tower System",
-    Content = "Configure tower automation settings here."
+local TowerToggle = Tabs.Tower:AddToggle("AutoTowerToggle", {
+    Title = "Auto Tower",
+    Description = "Auto climb and farm Tower",
+    Default = false
 })
+
+TowerToggle:OnChanged(function(Value)
+    ScrapFarm.ToggleTower(Value)
+end)
 
 -- [4] TAB: Settings
 Tabs.Settings:AddParagraph({
