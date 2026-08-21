@@ -295,8 +295,6 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
 }
 
-Tabs.Main:AddSection("Auto Recycler Farm")
-
 -- Toggle 1: Auto Scrap & Sell Recycler
 local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {
     Title = "Auto Scrap & Sell Recycler",
