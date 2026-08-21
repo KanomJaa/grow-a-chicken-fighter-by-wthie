@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    White Studio Games - Single File Version (Auto PitScrap & Recycler)
+    White Studio Games - Single File Version (Auto PitScrap, Recycler & Tower)
     ========================================================================
     Features:
     1. Check item count from Player Attribute "scrapCarry"
@@ -8,12 +8,13 @@
     3. Unified Single-Thread Loop: Prevents thread conflict when both toggles are ON
     4. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
-    6. Auto Tower Loop (Fixed sequence timing):
+    6. Auto Tower Loop:
        - Read current floor from LocalPlayer.leaderstats.Tower.Value immediately
        - Invoke Remote TowerElevator(currentFloor) & wait for server sync (0.8s)
        - Invoke Remote TowerStart
        - Intercept Telemetry (funnel = "towerContinue") -> Fire TowerContinueDecline
        - Wait 10s cooldown after Decline and repeat loop
+    7. Global UI Cleanup: Immediately stops all farm loops and disables Noclip if UI is closed or destroyed
     ========================================================================
 --]]
 
@@ -142,6 +143,13 @@ local ScrapFarm = {
 local isLoopRunning = false
 local isTowerHooked = false
 local lastDeclineTime = 0
+
+function ScrapFarm.StopAll()
+    ScrapFarm.Enabled = false
+    ScrapFarm.CoinsEnabled = false
+    ScrapFarm.TowerEnabled = false
+    Movement.DisableNoclip()
+end
 
 local function GetScrapCount()
     local count = LocalPlayer:GetAttribute("scrapCarry")
@@ -375,10 +383,10 @@ function ScrapFarm.ToggleTower(state)
             while ScrapFarm.TowerEnabled do
                 lastDeclineTime = 0
 
-                -- 1. ตรวจสอบชั้นล่าสุดก่อนเลยเสมอ
+                -- 1. อ่านค่าชั้นปัจจุบันจาก leaderstats.Tower
                 local currentTowerFloor = GetTowerLevel()
 
-                -- 2. ยิง Remote TowerElevator ก่อนเสมอ และรอให้ทำงานสมบูรณ์
+                -- 2. ส่ง Remote TowerElevator พร้อมชั้นปัจจุบัน
                 if towerElevator then
                     pcall(function()
                         if towerElevator:IsA("RemoteFunction") then
@@ -451,6 +459,42 @@ local Tabs = {
     Tower       = Window:AddTab({ Title = "Tower", Icon = "layers" }),
     Settings    = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
 }
+
+------------------------------------------------------------------------
+-- GLOBAL CLEANUP / STOP ALL WHEN UI IS CLOSED OR UNLOADED
+------------------------------------------------------------------------
+local function OnUICclosed()
+    ScrapFarm.StopAll()
+end
+
+pcall(function()
+    if Window and typeof(Window.OnUnload) == "function" then
+        Window:OnUnload(OnUICclosed)
+    end
+    if Library and typeof(Library.OnUnload) == "function" then
+        Library:OnUnload(OnUICclosed)
+    end
+end)
+
+task.spawn(function()
+    task.wait(1)
+    pcall(function()
+        local CoreGui = game:GetService("CoreGui")
+        local PlayerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        
+        local screenGui = (CoreGui and CoreGui:FindFirstChild("Fluent")) 
+                       or (PlayerGui and PlayerGui:FindFirstChild("Fluent"))
+        
+        if screenGui then
+            screenGui.Destroying:Connect(OnUICclosed)
+            screenGui.AncestryChanged:Connect(function(_, parent)
+                if not parent then
+                    OnUICclosed()
+                end
+            end)
+        end
+    end)
+end)
 
 -- [1] TAB: Auto Farm
 local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {

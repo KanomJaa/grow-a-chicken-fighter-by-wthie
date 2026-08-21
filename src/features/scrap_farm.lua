@@ -6,12 +6,8 @@
     3. ถ้ารันพร้อมกันทั้งคู่ ระบบจะรวมเป็นลูปเดียวและเลือกเก็บชิ้นที่ใกล้ที่สุดก่อน (ไม่รวน/ไม่ชนกัน)
     4. เดินไปยืนหน้า "Recycler1" และขายจนกว่า scrapCarry == 0
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
-    6. Auto Tower Loop (แก้ไขให้ยิง TowerElevator สำเร็จก่อนเสมอเพื่อป้องกันกลับไปเริ่มชั้น 1):
-       - ตรวจสอบชั้นล่าสุดจาก LocalPlayer.leaderstats.Tower.Value ก่อนทันที
-       - เรียก Remote TowerElevator:InvokeServer(currentFloor) และรอ Server Sync (0.8s)
-       - จากนั้นค่อยเรียก Remote TowerStart:InvokeServer()
-       - ดักจับ Telemetry (funnel = "towerContinue") -> สั่ง TowerContinueDecline:FireServer()
-       - รอ 10 วินาที แล้วเริ่มรอบถัดไปอัตโนมัติ
+    6. Auto Tower Loop (ยิง TowerElevator สำเร็จก่อนเสมอแล้วค่อยยิง TowerStart)
+    7. ระบบ StopAll: สั่งหยุดทุกระบบและปิด Noclip ทันทีเมื่อปิดหรือลบ UI
 --]]
 
 local ScrapFarm = {}
@@ -32,6 +28,15 @@ local lastDeclineTime = 0
 
 function ScrapFarm.SetMovementModule(movementModule)
     Movement = movementModule
+end
+
+function ScrapFarm.StopAll()
+    ScrapFarm.Enabled = false
+    ScrapFarm.CoinsEnabled = false
+    ScrapFarm.TowerEnabled = false
+    if Movement then
+        Movement.DisableNoclip()
+    end
 end
 
 local function GetScrapCount()

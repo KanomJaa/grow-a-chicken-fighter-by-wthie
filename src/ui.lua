@@ -29,6 +29,44 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
         Settings    = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
     }
 
+    -- ---------------------------------------------------------------------
+    -- GLOBAL CLEANUP / STOP ALL WHEN UI IS CLOSED OR UNLOADED
+    -- ---------------------------------------------------------------------
+    local function OnUICclosed()
+        if ScrapFarmModule and ScrapFarmModule.StopAll then
+            ScrapFarmModule.StopAll()
+        end
+    end
+
+    pcall(function()
+        if Window and typeof(Window.OnUnload) == "function" then
+            Window:OnUnload(OnUICclosed)
+        end
+        if Library and typeof(Library.OnUnload) == "function" then
+            Library:OnUnload(OnUICclosed)
+        end
+    end)
+
+    task.spawn(function()
+        task.wait(1)
+        pcall(function()
+            local CoreGui = game:GetService("CoreGui")
+            local PlayerGui = game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            
+            local screenGui = (CoreGui and CoreGui:FindFirstChild("Fluent")) 
+                           or (PlayerGui and PlayerGui:FindFirstChild("Fluent"))
+            
+            if screenGui then
+                screenGui.Destroying:Connect(OnUICclosed)
+                screenGui.AncestryChanged:Connect(function(_, parent)
+                    if not parent then
+                        OnUICclosed()
+                    end
+                end)
+            end
+        end)
+    end)
+
     ---------------------------------------------------------------------
     -- [1] TAB: Auto Farm
     ---------------------------------------------------------------------
