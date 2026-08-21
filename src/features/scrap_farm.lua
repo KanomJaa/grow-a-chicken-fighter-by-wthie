@@ -237,54 +237,93 @@ function ScrapFarm.ToggleCoins(state)
 end
 
 ------------------------------------------------------------------------
--- [3] AUTO TOWER FEATURE (Direct Decline Loop - No Hook Required)
+-- [3] AUTO TOWER FEATURE (Exact Event-Driven Telemetry Hook)
 ------------------------------------------------------------------------
+local hasSentTowerDecline = false
 local isTowerHooked = false
 
-local function FireDeclineRemote()
+local function StartTowerSession()
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes then
-        local declineRemote = remotes:FindFirstChild("TowerContinueDecline")
-        if declineRemote and declineRemote:IsA("RemoteEvent") then
-            declineRemote:FireServer()
-            lastDeclineTime = tick()
-            return true
-        end
+    if not remotes then return end
+
+    local towerElevator = remotes:FindFirstChild("TowerElevator")
+    local towerStart = remotes:FindFirstChild("TowerStart")
+
+    local currentTowerFloor = GetTowerLevel()
+
+    if towerElevator then
+        pcall(function()
+            if towerElevator:IsA("RemoteFunction") then
+                towerElevator:InvokeServer(currentTowerFloor)
+            elseif towerElevator:IsA("RemoteEvent") then
+                towerElevator:FireServer(currentTowerFloor)
+            end
+        end)
     end
-    return false
+
+    if towerStart then
+        pcall(function()
+            if towerStart:IsA("RemoteFunction") then
+                towerStart:InvokeServer()
+            elseif towerStart:IsA("RemoteEvent") then
+                towerStart:FireServer()
+            end
+        end)
+    end
 end
 
 local function SetupTelemetryHook()
     if isTowerHooked then return end
     isTowerHooked = true
 
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    local telemetry = remotes and remotes:FindFirstChild("Telemetry")
+    task.spawn(function()
+        local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+        if not remotes then return end
 
-    if telemetry and typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
-        local oldNamecall
-        
-        local hookFunc = function(self, ...)
-            local method = getnamecallmethod()
+        local telemetry = remotes:WaitForChild("Telemetry", 10)
+        local towerContinueDecline = remotes:WaitForChild("TowerContinueDecline", 10)
 
-            if self == telemetry and method == "FireServer" then
-                if ScrapFarm.TowerEnabled and IsUIValid() then
+        if telemetry and towerContinueDecline and typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+            local oldNamecall
+            
+            local hookFunc = function(self, ...)
+                local method = getnamecallmethod()
+
+                if self == telemetry and method == "FireServer" then
                     local args = {...}
                     if args[1] == "funnel" and type(args[2]) == "table" and args[2].funnel == "towerContinue" then
-                        FireDeclineRemote()
+                        if ScrapFarm.TowerEnabled and IsUIValid() and not hasSentTowerDecline then
+                            hasSentTowerDecline = true
+                            task.spawn(function()
+                                pcall(function()
+                                    if towerContinueDecline:IsA("RemoteEvent") then
+                                        towerContinueDecline:FireServer()
+                                    elseif towerContinueDecline:IsA("RemoteFunction") then
+                                        towerContinueDecline:InvokeServer()
+                                    end
+                                end)
+
+                                task.wait(10)
+                                hasSentTowerDecline = false
+                                
+                                if ScrapFarm.TowerEnabled and IsUIValid() then
+                                    StartTowerSession()
+                                end
+                            end)
+                        end
                     end
                 end
+
+                return oldNamecall(self, ...)
             end
 
-            return oldNamecall(self, ...)
-        end
+            if typeof(newcclosure) == "function" then
+                hookFunc = newcclosure(hookFunc)
+            end
 
-        if typeof(newcclosure) == "function" then
-            hookFunc = newcclosure(hookFunc)
+            oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
         end
-
-        oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
-    end
+    end)
 end
 
 function ScrapFarm.ToggleTower(state)
@@ -293,80 +332,8 @@ function ScrapFarm.ToggleTower(state)
 
     if state then
         SetupTelemetryHook()
-        task.spawn(function()
-            local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-            if not remotes then return end
-
-            local towerElevator = remotes:WaitForChild("TowerElevator", 10)
-            local towerStart = remotes:WaitForChild("TowerStart", 10)
-
-            while ScrapFarm.TowerEnabled and IsUIValid() do
-                lastDeclineTime = 0
-
-                -- 1. อ่านค่าชั้นล่าสุดจาก leaderstats.Tower ก่อนเสมอ
-                local currentTowerFloor = GetTowerLevel()
-
-                -- 2. ยิง Remote TowerElevator ก่อนเสมอ
-                if towerElevator then
-                    local ok, _ = pcall(function()
-                        if towerElevator:IsA("RemoteFunction") then
-                            towerElevator:InvokeServer(currentTowerFloor)
-                        elseif towerElevator:IsA("RemoteEvent") then
-                            towerElevator:FireServer(currentTowerFloor)
-                        end
-                    end)
-
-                    if not ok then
-                        task.wait(0.5)
-                        pcall(function()
-                            if towerElevator:IsA("RemoteFunction") then
-                                towerElevator:InvokeServer(currentTowerFloor)
-                            end
-                        end)
-                    end
-                end
-
-                task.wait(1.5)
-
-                if not ScrapFarm.TowerEnabled or not IsUIValid() then break end
-
-                -- 3. ยิง Remote TowerStart
-                if towerStart then
-                    pcall(function()
-                        if towerStart:IsA("RemoteFunction") then
-                            towerStart:InvokeServer()
-                        elseif towerStart:IsA("RemoteEvent") then
-                            towerStart:FireServer()
-                        end
-                    end)
-                end
-
-                -- 4. ส่ง Remote TowerContinueDecline เพื่อปฏิเสธการเสนอต่อชั้นทันที (ความเร็วสูง 0.05s / 50ms)
-                local waitStart = tick()
-                while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
-                    task.wait(0.05)
-                    
-                    -- ยิง Decline Remote รัวๆ ทุก 0.05 วินาที ทันทีที่ Server เปิดรับจะ Decline ทันทีในมิลลิวินาที
-                    FireDeclineRemote()
-
-                    if (tick() - waitStart) > 40 then
-                        break
-                    end
-                end
-
-                -- 5. รอครบ 10 วินาทีก่อนเริ่มลูปรอบถัดไป
-                if ScrapFarm.TowerEnabled and IsUIValid() then
-                    if lastDeclineTime > 0 then
-                        local timePassed = tick() - lastDeclineTime
-                        if timePassed < 10 then
-                            task.wait(10 - timePassed)
-                        end
-                    else
-                        task.wait(3)
-                    end
-                end
-            end
-        end)
+        hasSentTowerDecline = false
+        StartTowerSession()
     end
 end
 
