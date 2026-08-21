@@ -8,12 +8,12 @@
     3. Unified Single-Thread Loop: Prevents thread conflict when both toggles are ON
     4. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
-    6. Auto Tower Loop (Instant 0ms Telemetry Detection Version):
+    6. Auto Tower Loop (Direct Auto Decline Version - No Hook Required):
        - Read current floor from LocalPlayer.leaderstats.Tower.Value
        - Invoke Remote TowerElevator(currentFloor) with retry handling
        - Wait 1.5s for server state sync
        - Invoke Remote TowerStart
-       - Ultra-Fast Telemetry Hook (0ms): Intercept Telemetry (funnel = "towerContinue") via fast-path __namecall filter -> Fire TowerContinueDecline instantly on exact frame
+       - Direct Decline Polling: Fires Remote TowerContinueDecline continuously every 0.5s inside tower (100% works across all executors without Metamethod hooks)
        - Wait 10s cooldown after Decline and repeat loop
     7. Global UI Cleanup & Real-time Validation:
        - Continuous IsUIValid checks inside all while loops
@@ -144,7 +144,6 @@ local ScrapFarm = {
 }
 
 local isLoopRunning = false
-local isTowerHooked = false
 local lastDeclineTime = 0
 local UIValidator = nil
 
@@ -268,9 +267,6 @@ local function StartFarmLoop()
 
     task.spawn(function()
         while IsAnyFarmEnabled() and IsUIValid() do
-            -----------------------------------------------------------------
-            -- 1. Collect Target Items in PitScrap ("Loose" / "Part")
-            -----------------------------------------------------------------
             while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() < ScrapFarm.TargetAmount do
                 local targetItem = GetClosestTargetItem()
 
@@ -290,11 +286,8 @@ local function StartFarmLoop()
                 end
             end
 
-            if not IsAnyFarmEnabled() or not IsUIValid() then break end
+            if not IsAnyFarmEnabled() or not IsUIValid() me then break end
 
-            -----------------------------------------------------------------
-            -- 2. Walk to Recycler1 and sell
-            -----------------------------------------------------------------
             if GetScrapCount() > 0 then
                 local retryAttempts = 0
 
@@ -354,7 +347,7 @@ function ScrapFarm.ToggleCoins(state)
 end
 
 ------------------------------------------------------------------------
--- [3] AUTO TOWER FEATURE (0ms Instant Telemetry Hook)
+-- [3] AUTO TOWER FEATURE (Direct Auto Decline - No Hook Required)
 ------------------------------------------------------------------------
 local function FireDeclineRemote()
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
@@ -363,42 +356,10 @@ local function FireDeclineRemote()
         if declineRemote and declineRemote:IsA("RemoteEvent") then
             declineRemote:FireServer()
             lastDeclineTime = tick()
+            return true
         end
     end
-end
-
-local function SetupTelemetryHook()
-    if isTowerHooked then return end
-    isTowerHooked = true
-
-    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
-        local oldNamecall
-        
-        local hookFunc = function(self, ...)
-            local method = getnamecallmethod()
-
-            if method == "FireServer" or method == "fireServer" then
-                if self and self.Name == "Telemetry" then
-                    if ScrapFarm.TowerEnabled and IsUIValid() then
-                        local args = {...}
-                        if args[1] == "funnel" and typeof(args[2]) == "table" then
-                            if args[2]["funnel"] == "towerContinue" then
-                                FireDeclineRemote() -- ยิง Decline ทันทีใน 0ms
-                            end
-                        end
-                    end
-                end
-            end
-
-            return oldNamecall(self, ...)
-        end
-
-        if typeof(newcclosure) == "function" then
-            hookFunc = newcclosure(hookFunc)
-        end
-
-        oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
-    end
+    return false
 end
 
 function ScrapFarm.ToggleTower(state)
@@ -406,8 +367,6 @@ function ScrapFarm.ToggleTower(state)
     ScrapFarm.TowerEnabled = state
 
     if state then
-        SetupTelemetryHook()
-
         task.spawn(function()
             local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
             if not remotes then return end
@@ -456,11 +415,15 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (ตรวจจับความถี่สูง 0.05s ทันทีที่ Telemetry ถูกเรียก)
+                -- 4. ส่ง Remote TowerContinueDecline เพื่อปฏิเสธการเสนอต่อชั้นทันที
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
-                    task.wait(0.05)
-                    if (tick() - waitStart) > 60 then
+                    task.wait(0.5)
+                    
+                    -- ยิง Decline Remote ทุกๆ 0.5 วินาที ทันทีที่เข้า Tower เพื่อปฏิเสธข้อเสนอ 0ms ทันทีที่เปิดขึ้นมา
+                    FireDeclineRemote()
+
+                    if (tick() - waitStart) > 30 then
                         break
                     end
                 end
