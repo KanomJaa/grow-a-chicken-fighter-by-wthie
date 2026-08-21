@@ -6,10 +6,10 @@
     3. ถ้ารันพร้อมกันทั้งคู่ ระบบจะรวมเป็นลูปเดียวและเลือกเก็บชิ้นที่ใกล้ที่สุดก่อน (ไม่รวน/ไม่ชนกัน)
     4. เดินไปยืนหน้า "Recycler1" และขายจนกว่า scrapCarry == 0
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
-    6. Auto Tower Loop:
-       - อ่านค่าชั้นปัจจุบันจาก LocalPlayer.leaderstats.Tower.Value
-       - เรียก Remote TowerElevator:InvokeServer(currentFloor)
-       - เรียก Remote TowerStart:InvokeServer()
+    6. Auto Tower Loop (แก้ไขให้ยิง TowerElevator สำเร็จก่อนเสมอเพื่อป้องกันกลับไปเริ่มชั้น 1):
+       - ตรวจสอบชั้นล่าสุดจาก LocalPlayer.leaderstats.Tower.Value ก่อนทันที
+       - เรียก Remote TowerElevator:InvokeServer(currentFloor) และรอ Server Sync (0.8s)
+       - จากนั้นค่อยเรียก Remote TowerStart:InvokeServer()
        - ดักจับ Telemetry (funnel = "towerContinue") -> สั่ง TowerContinueDecline:FireServer()
        - รอ 10 วินาที แล้วเริ่มรอบถัดไปอัตโนมัติ
 --]]
@@ -43,9 +43,9 @@ local function GetScrapCount()
 end
 
 local function GetTowerLevel()
-    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats") or LocalPlayer:WaitForChild("leaderstats", 5)
     if leaderstats then
-        local towerVal = leaderstats:FindFirstChild("Tower")
+        local towerVal = leaderstats:FindFirstChild("Tower") or leaderstats:WaitForChild("Tower", 5)
         if towerVal then
             return tonumber(towerVal.Value) or 0
         end
@@ -271,10 +271,10 @@ function ScrapFarm.ToggleTower(state)
             while ScrapFarm.TowerEnabled do
                 lastDeclineTime = 0
 
-                -- 1. อ่านค่าชั้นปัจจุบันจาก leaderstats.Tower
+                -- 1. ตรวจสอบชั้นล่าสุดก่อนเลยเสมอ
                 local currentTowerFloor = GetTowerLevel()
 
-                -- 2. ส่ง Remote TowerElevator พร้อมชั้นปัจจุบัน
+                -- 2. ยิง Remote TowerElevator ก่อนเสมอ และรอให้ทำงานสมบูรณ์
                 if towerElevator then
                     pcall(function()
                         if towerElevator:IsA("RemoteFunction") then
@@ -285,9 +285,12 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                task.wait(0.2)
+                -- รอให้ Server Sync ค่าจากการเลือกชั้นของ TowerElevator ให้เรียบร้อย
+                task.wait(0.8)
 
-                -- 3. ส่ง Remote TowerStart
+                if not ScrapFarm.TowerEnabled then break end
+
+                -- 3. จากนั้นค่อยยิง Remote TowerStart ตามหลัง
                 if towerStart then
                     pcall(function()
                         if towerStart:IsA("RemoteFunction") then
@@ -298,7 +301,7 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (ผ่าน Telemetry hook) หรือครบเวลา fallback
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (ผ่าน Telemetry hook) หรือพ้นระยะ fallback (60 วินาที)
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and lastDeclineTime == 0 do
                     task.wait(0.5)
@@ -307,7 +310,7 @@ function ScrapFarm.ToggleTower(state)
                     end
                 end
 
-                -- 5. หากยิง TowerContinueDecline เรียบร้อย ให้รอครบ 10 วินาทีก่อนเริ่มลูปใหม่
+                -- 5. หากยิง TowerContinueDecline เรียบร้อย ให้รอครบ 10 วินาทีก่อนเริ่มลูปรอบถัดไป
                 if ScrapFarm.TowerEnabled then
                     if lastDeclineTime > 0 then
                         local timePassed = tick() - lastDeclineTime
