@@ -11,6 +11,7 @@
 
 local ScrapFarm = {}
 ScrapFarm.Enabled = false
+ScrapFarm.CoinsEnabled = false
 ScrapFarm.TargetCollectAmount = 10
 
 local Players = game:GetService("Players")
@@ -95,7 +96,7 @@ local function GetRecyclerPosition()
     return nil
 end
 
--- ฟังก์ชันเริ่ม/หยุดการทำงาน
+-- ฟังก์ชันเริ่ม/หยุดการทำงาน Auto Scrap & Sell
 function ScrapFarm.Toggle(state)
     ScrapFarm.Enabled = state
 
@@ -173,6 +174,11 @@ function ScrapFarm.Toggle(state)
     else
         if Movement then Movement.DisableNoclip() end
     end
+end
+
+-- ฟังก์ชันสำหรับ Auto Coins & Sell Recycler (เตรียมพร้อมสำหรับใส่ระบบเมื่อต้องการ)
+function ScrapFarm.ToggleCoins(state)
+    ScrapFarm.CoinsEnabled = state
 end
 
 return ScrapFarm

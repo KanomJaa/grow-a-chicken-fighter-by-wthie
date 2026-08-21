@@ -2,14 +2,13 @@
     ========================================================================
     White Studio Games - Single File Version (Auto PitScrap & Recycler)
     ========================================================================
-    ระบบการทำงาน:
-    1. ตรวจสอบจำนวน Scrap จาก Attribute "scrapCarry" ของ Player
-    2. ค้นหา "PitScrap" ใน Workspace -> หาชิ้น "Loose" ที่อยู่ใกล้ตัวละครมากที่สุด
-    3. ระบบตรวจจับการเดินของ Player: เมื่อกด WASD / จอยสติ๊ก บอทจะหยุดให้ Player เดินเองทันที
-       และเมื่อปล่อยมือ บอทจะกลับมาเดินออโต้ให้อัตโนมัติ โดยไม่แย่งกันเดิน
-    4. เปิด Noclip (เดินทะลุสิ่งของ) และเมื่อปิด Auto จะคืนค่าให้เดินชนได้ตามปกติ
-    5. เดินไปยืนข้างหน้า "Recycler1" (ไม่ตกลงไปข้างใน) และรอจนกว่า scrapCarry == 0
-    6. ทำวนซ้ำเรื่อยๆ เมื่อเปิด Toggle / หยุดทำงานและปิด Noclip ทันทีเมื่อปิด Toggle
+    Features:
+    1. Check scrap count from Player Attribute "scrapCarry"
+    2. Search "PitScrap" in Workspace -> Find nearest "Loose" item
+    3. Player Manual Movement Priority: WASD/Joystick instantly pauses auto-movement
+    4. Enable Noclip (pass through obstacles) and restore collisions on disable
+    5. Walk to front position of "Recycler1" and wait until scrapCarry == 0
+    6. English UI layout with Auto Coins placeholder toggle
     ========================================================================
 --]]
 
@@ -20,7 +19,7 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 ------------------------------------------------------------------------
--- [1] MOVEMENT UTILS (ระบบการเดิน, Noclip & ตรวจจับการกดเดินเอง)
+-- [1] MOVEMENT UTILS
 ------------------------------------------------------------------------
 local Movement = {}
 local NoclipConnection = nil
@@ -129,6 +128,7 @@ end
 ------------------------------------------------------------------------
 local ScrapFarm = {
     Enabled = false,
+    CoinsEnabled = false,
     TargetAmount = 10
 }
 
@@ -205,7 +205,7 @@ function ScrapFarm.Toggle(state)
         task.spawn(function()
             while ScrapFarm.Enabled do
                 -----------------------------------------------------------------
-                -- 1. เดินเก็บ Loose ใน PitScrap จนกว่าจะครบ 10 หรือไม่เหลือ Loose
+                -- 1. Collect Loose in PitScrap
                 -----------------------------------------------------------------
                 while ScrapFarm.Enabled and GetScrapCount() < ScrapFarm.TargetAmount do
                     local targetLoose = GetClosestLoose()
@@ -229,7 +229,7 @@ function ScrapFarm.Toggle(state)
                 if not ScrapFarm.Enabled then break end
 
                 -----------------------------------------------------------------
-                -- 2. เดินไปยืนหน้า Recycler1 และรอจนกว่าขายสำเร็จ (scrapCarry == 0)
+                -- 2. Walk to Recycler1 and sell
                 -----------------------------------------------------------------
                 if GetScrapCount() > 0 then
                     local retryAttempts = 0
@@ -271,6 +271,10 @@ function ScrapFarm.Toggle(state)
     end
 end
 
+function ScrapFarm.ToggleCoins(state)
+    ScrapFarm.CoinsEnabled = state
+end
+
 ------------------------------------------------------------------------
 -- [3] UI INITIALIZATION (Fluent Library)
 ------------------------------------------------------------------------
@@ -278,7 +282,7 @@ local Library = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent
 
 local Window = Library:CreateWindow({
     Title = "White Studio Games",
-    SubTitle = "Auto PitScrap & Recyclers",
+    SubTitle = "Version 1.0.1",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true,
@@ -292,10 +296,12 @@ local Tabs = {
     Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
 }
 
--- Toggle สำหรับ Auto Scrap & Sell Recycler
-local ScrapToggle = Tabs.Main:AddToggle("MyAutoToggle", {
-    Title = "Auto Scap & Sell Recycler",
-    Description = "ตรวจ scrapCarry -> เก็บ 10 ชิ้น -> ยืนขายหน้า Recycler1",
+Tabs.Main:AddSection("Auto Recycler Farm")
+
+-- Toggle 1: Auto Scrap & Sell Recycler
+local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {
+    Title = "Auto Scrap & Sell Recycler",
+    Description = "Check scrapCarry -> Collect 10 items -> Sell in front of Recycler1",
     Default = false
 })
 
@@ -303,10 +309,23 @@ ScrapToggle:OnChanged(function(Value)
     ScrapFarm.Toggle(Value)
 end)
 
--- Slider ปรับความเร็วตัวละคร
+-- Toggle 2: Auto Coins & Sell Recycler
+local CoinsToggle = Tabs.Main:AddToggle("AutoCoinsToggle", {
+    Title = "Auto Coins & Sell Recycler",
+    Description = "Auto farm coins and sell at Recycler",
+    Default = false
+})
+
+CoinsToggle:OnChanged(function(Value)
+    ScrapFarm.ToggleCoins(Value)
+end)
+
+-- Player Utilities
+Tabs.Player:AddSection("Character Settings")
+
 local SpeedSlider = Tabs.Player:AddSlider("WalkSpeedSlider", {
-    Title = "ความเร็วในการเดิน (WalkSpeed)",
-    Description = "ปรับความเร็วของตัวละคร",
+    Title = "WalkSpeed",
+    Description = "Adjust character movement speed",
     Default = 16,
     Min = 16,
     Max = 200,
@@ -318,5 +337,11 @@ SpeedSlider:OnChanged(function(Value)
         LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = Value
     end
 end)
+
+-- Settings Tab
+Tabs.Settings:AddParagraph({
+    Title = "GitHub Usage Instructions",
+    Content = "After pushing to GitHub, execute using loadstring(game:HttpGet('...'))"
+})
 
 Window:SelectTab(1)

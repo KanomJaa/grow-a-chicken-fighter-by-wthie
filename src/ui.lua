@@ -1,23 +1,20 @@
 --[[
     UI Module (Fluent Library)
-    หน้าที่: สร้างหน้าต่าง UI, แท็บ (Tabs), ปุ่มเปิด/ปิด (Toggles) และเชื่อมต่อกับ Feature Modules
+    Main UI Setup with English labels and Auto Coins toggle placeholder
 --]]
 
 local UIModule = {}
 
 function UIModule.Init(ScrapFarmModule, MovementModule)
-    -- ส่ง Movement Module ให้กับ ScrapFarm
     if ScrapFarmModule and ScrapFarmModule.SetMovementModule then
         ScrapFarmModule.SetMovementModule(MovementModule)
     end
 
-    -- โหลด Fluent Library
     local Library = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
-    -- สร้างหน้าต่างหลัก (Window)
     local Window = Library:CreateWindow({
         Title = "White Studio Games",
-        SubTitle = "v1.0.0 - Modular Version",
+        SubTitle = "Version 1.0.1",
         TabWidth = 160,
         Size = UDim2.fromOffset(580, 460),
         Acrylic = true,
@@ -25,7 +22,6 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
         MinimizeKey = Enum.KeyCode.LeftControl
     })
 
-    -- สร้างแท็บเมนูต่างๆ (Tabs)
     local Tabs = {
         Main     = Window:AddTab({ Title = "Auto Farm", Icon = "box" }),
         Player   = Window:AddTab({ Title = "Player", Icon = "user" }),
@@ -35,12 +31,12 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
     ---------------------------------------------------------------------
     -- [1] TAB: Auto Farm
     ---------------------------------------------------------------------
-    Tabs.Main:AddSection("Auto PitScrap & Recyclers")
+    Tabs.Main:AddSection("Auto Recycler Farm")
 
-    -- Toggle สำหรับ Auto Scrap & Sell
-    local ScrapToggle = Tabs.Main:AddToggle("MyAutoToggle", {
-        Title = "Auto Scap & Sell Recycler",
-        Description = "ค้นหา PitScrap -> Loose 10 ชิ้น -> เดินทะลุไปขาย Recyclers",
+    -- Toggle 1: Auto Scrap & Sell Recycler
+    local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {
+        Title = "Auto Scrap & Sell Recycler",
+        Description = "Check scrapCarry -> Collect 10 items -> Sell in front of Recycler1",
         Default = false
     })
 
@@ -50,15 +46,27 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
         end
     end)
 
+    -- Toggle 2: Auto Coins & Sell Recycler
+    local CoinsToggle = Tabs.Main:AddToggle("AutoCoinsToggle", {
+        Title = "Auto Coins & Sell Recycler",
+        Description = "Auto farm coins and sell at Recycler",
+        Default = false
+    })
+
+    CoinsToggle:OnChanged(function(Value)
+        if ScrapFarmModule and ScrapFarmModule.ToggleCoins then
+            ScrapFarmModule.ToggleCoins(Value)
+        end
+    end)
+
     ---------------------------------------------------------------------
     -- [2] TAB: Player Utilities
     ---------------------------------------------------------------------
-    Tabs.Player:AddSection("การตั้งค่าตัวละคร")
+    Tabs.Player:AddSection("Character Settings")
 
-    -- WalkSpeed Slider
     local SpeedSlider = Tabs.Player:AddSlider("WalkSpeedSlider", {
-        Title = "ความเร็วในการเดิน (WalkSpeed)",
-        Description = "ปรับความเร็วของตัวละคร",
+        Title = "WalkSpeed",
+        Description = "Adjust character movement speed",
         Default = 16,
         Min = 16,
         Max = 200,
@@ -76,8 +84,8 @@ function UIModule.Init(ScrapFarmModule, MovementModule)
     -- [3] TAB: Settings
     ---------------------------------------------------------------------
     Tabs.Settings:AddParagraph({
-        Title = "คำแนะนำการใช้งาน GitHub",
-        Content = "เมื่ออัปขึ้น GitHub แล้ว คุณสามารถรันสคริปต์ผ่าน loadstring(game:HttpGet('...')) ได้ทันที"
+        Title = "GitHub Usage Instructions",
+        Content = "After pushing to GitHub, execute using loadstring(game:HttpGet('...'))"
     })
 
     Window:SelectTab(1)
