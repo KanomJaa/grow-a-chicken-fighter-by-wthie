@@ -20,5 +20,3 @@ local UIModule  = loadstring(game:HttpGet(BaseUrl .. "src/ui.lua"))()
 
 -- [2] เริ่มต้นทำงาน UI และส่ง Modules เข้าไปใช้งาน
 local Window = UIModule.Init(ScrapFarm, Movement)
-
-print("[White Studio] Script Loaded Successfully from GitHub!")

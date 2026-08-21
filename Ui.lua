@@ -5,8 +5,9 @@
     ระบบการทำงาน:
     1. ตรวจสอบจำนวน Scrap จาก Attribute "scrapCarry" ของ Player
     2. ค้นหา "PitScrap" ใน Workspace -> หาชิ้น "Loose" ที่อยู่ใกล้ตัวละครมากที่สุด
-    3. เปิด Noclip (เดินทะลุสิ่งของ) และเมื่อปิด Auto จะคืนค่าให้เดินชนได้ตามปกติ
-    4. เดินไปเก็บจนกระทั่ง scrapCarry >= 10 (หรือจนกว่า Loose จะหมด)
+    3. ระบบตรวจจับการเดินของ Player: เมื่อกด WASD / จอยสติ๊ก บอทจะหยุดให้ Player เดินเองทันที
+       และเมื่อปล่อยมือ บอทจะกลับมาเดินออโต้ให้อัตโนมัติ โดยไม่แย่งกันเดิน
+    4. เปิด Noclip (เดินทะลุสิ่งของ) และเมื่อปิด Auto จะคืนค่าให้เดินชนได้ตามปกติ
     5. เดินไปยืนข้างหน้า "Recycler1" (ไม่ตกลงไปข้างใน) และรอจนกว่า scrapCarry == 0
     6. ทำวนซ้ำเรื่อยๆ เมื่อเปิด Toggle / หยุดทำงานและปิด Noclip ทันทีเมื่อปิด Toggle
     ========================================================================
@@ -15,13 +16,39 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 ------------------------------------------------------------------------
--- [1] MOVEMENT UTILS (ระบบการเดิน & Noclip ทะลุสิ่งของ)
+-- [1] MOVEMENT UTILS (ระบบการเดิน, Noclip & ตรวจจับการกดเดินเอง)
 ------------------------------------------------------------------------
 local Movement = {}
 local NoclipConnection = nil
+
+function Movement.IsPlayerMovingManually()
+    local isKeyboard = UserInputService:IsKeyDown(Enum.KeyCode.W) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.A) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.S) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.D) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.Up) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.Down) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.Left) or
+                       UserInputService:IsKeyDown(Enum.KeyCode.Right)
+    
+    if isKeyboard then return true end
+
+    local character = LocalPlayer.Character
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.MoveDirection.Magnitude > 0.1 then
+            if UserInputService:GetFocusedTextBox() == nil then
+                return true
+            end
+        end
+    end
+
+    return false
+end
 
 function Movement.EnableNoclip()
     if NoclipConnection then return end
@@ -78,6 +105,15 @@ function Movement.WalkTo(targetPosition, timeout, shouldContinueCheck, stopDista
         end
         if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then break end
         
+        if Movement.IsPlayerMovingManually() then
+            while (shouldContinueCheck == nil or shouldContinueCheck()) and Movement.IsPlayerMovingManually() do
+                task.wait(0.1)
+            end
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):MoveTo(targetPosition)
+            end
+        end
+
         if (hrp.Position - targetPosition).Magnitude <= stopDistance then
             reached = true
             break
@@ -138,7 +174,6 @@ local function GetClosestLoose()
     return closestItem
 end
 
--- ฟังก์ชันค้นหาพิกัดตำแหน่งข้างหน้า Recycler1 (ระยะ 4.5 studs ไม่ตกลงไปข้างใน)
 local function GetRecyclerPosition()
     local recyclers = Workspace:FindFirstChild("Recyclers")
     if not recyclers then return nil end
@@ -165,7 +200,6 @@ function ScrapFarm.Toggle(state)
     ScrapFarm.Enabled = state
 
     if state then
-        print("[Auto Scrap] เริ่มทำงาน - เปิด Noclip และตรวจเช็ค scrapCarry...")
         Movement.EnableNoclip()
 
         task.spawn(function()
@@ -178,7 +212,6 @@ function ScrapFarm.Toggle(state)
 
                     if targetLoose then
                         local targetPos = targetLoose:IsA("BasePart") and targetLoose.Position or targetLoose:GetPivot().Position
-                        print(string.format("[Auto Scrap] เดินไปเก็บ Loose ( scrapCarry: %d/%d )", GetScrapCount(), ScrapFarm.TargetAmount))
 
                         local reached = Movement.WalkTo(targetPos, 15, function() return ScrapFarm.Enabled end, 3.5)
 
@@ -186,10 +219,8 @@ function ScrapFarm.Toggle(state)
                         task.wait(0.2)
                     else
                         if GetScrapCount() > 0 then
-                            print("[Auto Scrap] ไม่พบ Loose เพิ่มเติมแล้ว มีของอยู่ -> เดินไป Recycler1 ทันที!")
                             break
                         else
-                            print("[Auto Scrap] ไม่พบชิ้น Loose ใน PitScrap... รอ 1 วินาที")
                             task.wait(1)
                         end
                     end
@@ -205,7 +236,6 @@ function ScrapFarm.Toggle(state)
 
                     while ScrapFarm.Enabled and GetScrapCount() > 0 and retryAttempts < 5 do
                         retryAttempts = retryAttempts + 1
-                        print(string.format("[Auto Scrap] (ครั้งที่ %d) เดินไปหน้า Recycler1 เพื่อขาย Scrap...", retryAttempts))
                         
                         local recyclerPos = GetRecyclerPosition()
 
@@ -214,7 +244,6 @@ function ScrapFarm.Toggle(state)
 
                             if not ScrapFarm.Enabled then break end
 
-                            print("[Auto Scrap] ยืนรอให้ขาย Scrap...")
                             local sellStartTime = tick()
                             
                             while ScrapFarm.Enabled and GetScrapCount() > 0 and (tick() - sellStartTime) < 4 do
@@ -222,14 +251,11 @@ function ScrapFarm.Toggle(state)
                             end
 
                             if GetScrapCount() == 0 then
-                                print("[Auto Scrap] ขายสำเร็จแล้ว! scrapCarry = 0")
                                 break
                             else
-                                warn("[Auto Scrap] ยังขายไม่สำเร็จ! กำลังลองขยับไปที่ Recycler1 ใหม่...")
                                 task.wait(0.5)
                             end
                         else
-                            warn("[Auto Scrap] ไม่พบตำแหน่ง Recycler1... รอ 2 วินาที")
                             task.wait(2)
                         end
                     end
@@ -239,11 +265,9 @@ function ScrapFarm.Toggle(state)
             end
 
             Movement.DisableNoclip()
-            print("[Auto Scrap] หยุดทำงาน และปิด Noclip คืนค่าการชนเรียบร้อย")
         end)
     else
         Movement.DisableNoclip()
-        print("[Auto Scrap] ปิดการทำงาน และคืนค่าการชนเรียบร้อย")
     end
 end
 
@@ -296,4 +320,3 @@ SpeedSlider:OnChanged(function(Value)
 end)
 
 Window:SelectTab(1)
-print("[White Studio] Single-file Auto Scrap Script initialized!")
