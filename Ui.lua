@@ -10,7 +10,7 @@
     5. Enable Noclip (pass through obstacles) and restore collisions on disable
     6. Walk to front position of "Recycler1" and wait until scrapCarry == 0
     7. Auto Tower: Invoke RemoteFunction TowerStart, intercept Telemetry funnel "towerContinue",
-       and fire RemoteEvent TowerContinueDecline automatically
+       fire RemoteEvent TowerContinueDecline, and wait 10s before restarting loop.
     ========================================================================
 --]]
 
@@ -138,6 +138,7 @@ local ScrapFarm = {
 
 local isLoopRunning = false
 local isTowerHooked = false
+local lastDeclineTime = 0
 
 local function GetScrapCount()
     local count = LocalPlayer:GetAttribute("scrapCarry")
@@ -311,6 +312,7 @@ local function FireDeclineRemote()
         local declineRemote = remotes:FindFirstChild("TowerContinueDecline")
         if declineRemote and declineRemote:IsA("RemoteEvent") then
             declineRemote:FireServer()
+            lastDeclineTime = tick()
         end
     end
 end
@@ -356,6 +358,8 @@ function ScrapFarm.ToggleTower(state)
             local towerStart = remotes:WaitForChild("TowerStart", 10)
 
             while ScrapFarm.TowerEnabled do
+                lastDeclineTime = 0
+
                 if towerStart then
                     pcall(function()
                         if towerStart:IsA("RemoteFunction") then
@@ -366,7 +370,26 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                task.wait(3)
+                -- รอจนกว่า TowerContinueDecline จะถูกยิง หรือพ้นระยะเวลา fallback (60 วินาที)
+                local waitStart = tick()
+                while ScrapFarm.TowerEnabled and lastDeclineTime == 0 do
+                    task.wait(0.5)
+                    if (tick() - waitStart) > 60 then
+                        break
+                    end
+                end
+
+                -- หากยิง TowerContinueDecline เรียบร้อย ให้รอครบ 10 วินาทีก่อนเริ่มลูปใหม่
+                if ScrapFarm.TowerEnabled then
+                    if lastDeclineTime > 0 then
+                        local timePassed = tick() - lastDeclineTime
+                        if timePassed < 10 then
+                            task.wait(10 - timePassed)
+                        end
+                    else
+                        task.wait(3)
+                    end
+                end
             end
         end)
     end
