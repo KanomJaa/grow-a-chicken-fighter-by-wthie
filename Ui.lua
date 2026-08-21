@@ -313,11 +313,13 @@ local Window = Library:CreateWindow({
 })
 
 local Tabs = {
-    Main     = Window:AddTab({ Title = "Auto Farm", Icon = "box" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
+    Main        = Window:AddTab({ Title = "Auto Farm", Icon = "box" }),
+    AutoUpgrade = Window:AddTab({ Title = "Auto Upgrade", Icon = "arrow-up-circle" }),
+    Tower       = Window:AddTab({ Title = "Tower", Icon = "layers" }),
+    Settings    = Window:AddTab({ Title = "Settings", Icon = "sliders-horizontal" })
 }
 
--- Toggle 1: Auto Scrap & Sell Recycler
+-- [1] TAB: Auto Farm
 local ScrapToggle = Tabs.Main:AddToggle("AutoScrapToggle", {
     Title = "Auto Scrap & Sell Recycler",
     Description = "Auto farm Scrap and sell at Recycler",
@@ -328,7 +330,6 @@ ScrapToggle:OnChanged(function(Value)
     ScrapFarm.Toggle(Value)
 end)
 
--- Toggle 2: Auto Coins & Sell Recycler
 local CoinsToggle = Tabs.Main:AddToggle("AutoCoinsToggle", {
     Title = "Auto Coins & Sell Recycler",
     Description = "Auto farm Coins and sell at Recycler",
@@ -339,7 +340,19 @@ CoinsToggle:OnChanged(function(Value)
     ScrapFarm.ToggleCoins(Value)
 end)
 
--- Settings Tab
+-- [2] TAB: Auto Upgrade
+Tabs.AutoUpgrade:AddParagraph({
+    Title = "Auto Upgrade System",
+    Content = "Configure auto upgrades for your stats and equipment here."
+})
+
+-- [3] TAB: Tower
+Tabs.Tower:AddParagraph({
+    Title = "Tower System",
+    Content = "Configure tower automation settings here."
+})
+
+-- [4] TAB: Settings
 Tabs.Settings:AddParagraph({
     Title = "GitHub Usage Instructions",
     Content = "After pushing to GitHub, execute using loadstring(game:HttpGet('...'))"
