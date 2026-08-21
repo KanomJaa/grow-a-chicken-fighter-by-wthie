@@ -286,7 +286,7 @@ local function StartFarmLoop()
                 end
             end
 
-            if not IsAnyFarmEnabled() or not IsUIValid() me then break end
+            if not IsAnyFarmEnabled() or not IsUIValid() then break end
 
             if GetScrapCount() > 0 then
                 local retryAttempts = 0
