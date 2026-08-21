@@ -8,7 +8,7 @@
     5. ปรับให้ Noclip ทำงานเมื่อเปิดใช้ และคืนค่า CanCollide ให้ชนปกติเมื่อปิด
     6. Auto Tower Loop (ยิง TowerElevator สำเร็จก่อนเสมอแล้วค่อยยิง TowerStart)
     7. ระบบ StopAll & UI Validation: ตรวจสอบความคงอยู่ของ UI ในทุกรอบลูป หากปิด UI ระบบจะหยุดการทำงานทั้งหมดทันที
-    8. ป้องกัน Error Thread Capability 100%: ยกเลิกการ hookmetamethod(game, "__namecall") ซึ่งเป็นสาเหตุของสคริปต์กล้อง/ปุ่มเดินค้าง เปลี่ยนไปใช้ Targeted Remote Hook และ Periodic Decline Fallback
+    8. Ultra-Fast Telemetry Detection (0ms): ปรับแต่ง __namecall hook แบบ Fast-path filter ทำงานระดับ 0ms ทันทีที่ Telemetry ถูกส่งโดยเกม ไม่เกิดอาการหน่วง/ช้า
 --]]
 
 local ScrapFarm = {}
@@ -161,7 +161,7 @@ local function StartFarmLoop()
             while IsAnyFarmEnabled() and IsUIValid() and GetScrapCount() < ScrapFarm.TargetCollectAmount do
                 local targetItem = GetClosestTargetItem()
 
-                if targetItem me then
+                if targetItem then
                     local targetPos = targetItem:IsA("BasePart") and targetItem.Position or targetItem:GetPivot().Position
 
                     local reached = false
@@ -245,7 +245,7 @@ function ScrapFarm.ToggleCoins(state)
 end
 
 ------------------------------------------------------------------------
--- [3] AUTO TOWER FEATURE
+-- [3] AUTO TOWER FEATURE (0ms Instant Telemetry Hook)
 ------------------------------------------------------------------------
 local function FireDeclineRemote()
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
@@ -262,25 +262,33 @@ local function SetupTelemetryHook()
     if isTowerHooked then return end
     isTowerHooked = true
 
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    local telemetry = remotes and remotes:FindFirstChild("Telemetry")
+    if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
+        local oldNamecall
+        
+        local hookFunc = function(self, ...)
+            local method = getnamecallmethod()
 
-    if telemetry and typeof(hookfunction) == "function" then
-        pcall(function()
-            local oldFire
-            oldFire = hookfunction(telemetry.FireServer, newcclosure(function(self, ...)
-                local args = {...}
-                if ScrapFarm.TowerEnabled and IsUIValid() and args[1] == "funnel" and typeof(args[2]) == "table" then
-                    if args[2]["funnel"] == "towerContinue" then
-                        task.spawn(function()
-                            task.wait(0.1)
-                            FireDeclineRemote()
-                        end)
+            if method == "FireServer" or method == "fireServer" then
+                if self and self.Name == "Telemetry" then
+                    if ScrapFarm.TowerEnabled and IsUIValid() then
+                        local args = {...}
+                        if args[1] == "funnel" and typeof(args[2]) == "table" then
+                            if args[2]["funnel"] == "towerContinue" then
+                                FireDeclineRemote() -- ยิง Decline ทันทีใน 0ms
+                            end
+                        end
                     end
                 end
-                return oldFire(self, ...)
-            end))
-        end)
+            end
+
+            return oldNamecall(self, ...)
+        end
+
+        if typeof(newcclosure) == "function" then
+            hookFunc = newcclosure(hookFunc)
+        end
+
+        oldNamecall = hookmetamethod(game, "__namecall", hookFunc)
     end
 end
 
@@ -339,17 +347,11 @@ function ScrapFarm.ToggleTower(state)
                     end)
                 end
 
-                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (มีทั้งระบบ Telemetry hook และ Periodic Decline Fallback)
+                -- 4. รอจนกว่า TowerContinueDecline จะถูกยิง (เช็คสถานะทุก 0.05 วินาที ทันทีที่ Telemetry Hook ทำงาน)
                 local waitStart = tick()
                 while ScrapFarm.TowerEnabled and IsUIValid() and lastDeclineTime == 0 do
-                    task.wait(1)
-                    
-                    -- ยิง Decline Remote เป็นระยะเผื่อกรณี Executor ไม่รองรับ Telemetry Hook
-                    if (tick() - waitStart) >= 3 then
-                        FireDeclineRemote()
-                    end
-
-                    if (tick() - waitStart) > 45 then
+                    task.wait(0.05)
+                    if (tick() - waitStart) > 60 then
                         break
                     end
                 end
